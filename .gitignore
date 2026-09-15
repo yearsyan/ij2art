@@ -1,0 +1,47 @@
+# Build artifacts (output of build.sh / test/build-android.sh)
+out/
+
+# Rust build cache
+cli/target/
+
+# Compilation intermediates
+*.o
+*.so
+*.d
+
+# Java / Android build artifacts (these should normally only appear under
+# out/; this rule is an extra safeguard)
+*.class
+*.dex
+*.apk
+*.jar
+*.aar
+*.idsig
+
+# Signing credentials; these must never be committed
+*.keystore
+*.jks
+
+# Machine-local files for Android projects
+local.properties
+.cxx/
+
+# Python
+__pycache__/
+*.pyc
+
+# Test logs
+*.log
+
+# macOS
+.DS_Store
+
+# ZCode session artifacts (plan files named after a session id). If the project
+# ever commits workspace-shared ZCode config, narrow this to .zcode/plans/.
+.zcode/
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*~

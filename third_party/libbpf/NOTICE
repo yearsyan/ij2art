@@ -1,0 +1,9 @@
+libbpf v1.7.0 ring buffer module
+https://github.com/libbpf/libbpf/tree/f5dcbae736e5d7f83a35718e01be1a8e3010fa39
+Copyright (C) 2020 Facebook, Inc. (ringbuf.c)
+Copyright (c) 2019 Facebook (internal helpers)
+Copyright (C) 2021 Facebook (version header)
+Copyright (C) 2013-2015 Alexei Starovoitov
+Copyright (C) 2015 Wang Nan and Huawei Inc. (BPF API headers)
+Distributed under the BSD-2-Clause option of LGPL-2.1 OR BSD-2-Clause.
+

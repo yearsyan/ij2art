@@ -1,0 +1,5 @@
+# The aarch64-linux-android cross linker is not hardcoded here. Instead, the sdk.env.sh
+# script at the root of the repository resolves the SDK/NDK and exports
+#   CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER
+# Building through ./build.sh makes this take effect automatically. If you need to build
+# inside cli/ on its own, first run `source ../sdk.env.sh`.

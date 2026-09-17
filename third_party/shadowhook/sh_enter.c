@@ -28,7 +28,8 @@
 #include "sh_config.h"
 #include "sh_trampo.h"
 
-#define SH_ENTER_ANON_PAGE_NAME "shadowhook-enter"
+// ij2art local change: renamed so the target's maps show no shadowhook pages.
+#define SH_ENTER_ANON_PAGE_NAME "jit-code-cache"
 #define SH_ENTER_DELAY_SEC      15
 
 #ifdef SH_CONFIG_TRY_HOOK_WITHOUT_ISLAND

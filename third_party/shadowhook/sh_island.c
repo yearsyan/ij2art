@@ -38,7 +38,8 @@
 #define SH_ISLAND_TYPE_ELF_GAP   1
 // add more island type here ......
 
-#define SH_ISLAND_ANON_PAGE_NAME "shadowhook-island"
+// ij2art local change: renamed so the target's maps show no shadowhook pages.
+#define SH_ISLAND_ANON_PAGE_NAME "jit-code-cache"
 #define SH_ISLAND_DELAY_SEC      15
 #if defined(__arm__)
 #define SH_ISLAND_SIZE_MAX 8

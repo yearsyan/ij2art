@@ -48,7 +48,9 @@ public final class JavaCalls {
             if (main) {
                 if (!new Handler(looper).post(job)) throw new IllegalStateException("main Looper rejected Java call");
             } else {
-                Thread thread = new Thread(job, "ij2art-java-" + job.id);
+                // Unnamed: the runtime assigns the same sequential "Thread-N" name as any
+                // other unnamed thread in the process, so jobs stay out of name-based scans.
+                Thread thread = new Thread(job);
                 thread.setDaemon(true);
                 thread.start();
             }

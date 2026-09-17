@@ -3,6 +3,7 @@
 #include "dex_store.h"
 #include "hook_sdk.h"
 #include "java_calls.h"
+#include "ring.h"
 #include <elf.h>
 #include <link.h>
 #include <pthread.h>
@@ -157,7 +158,9 @@ JavaVM* bootstrap_runtime() {
     if (!get_created_vms || get_created_vms(&vm, 1, &found) != JNI_OK || found != 1 || !vm)
         return nullptr;
     JNIEnv* env = nullptr;
-    JavaVMAttachArgs args{JNI_VERSION_1_6, const_cast<char*>("ij2art-control"), nullptr};
+    // The attach name becomes the Java Thread's name and, via ART's CreatePeer, this TID's
+    // new comm — it must repeat the worker's disguise instead of carrying a plaintext tag.
+    JavaVMAttachArgs args{JNI_VERSION_1_6, const_cast<char*>(ij2art_ring_worker_name()), nullptr};
     if (vm->AttachCurrentThreadAsDaemon(&env, &args) != JNI_OK || !env) return nullptr;
     if (env->ExceptionCheck()) env->ExceptionClear();
 
@@ -221,7 +224,7 @@ bool attach(ij2art_rsp& r) {
             "runtime not ready: no App-delivered readiness and worker bootstrap failed");
         return false;
     }
-    JavaVMAttachArgs args{JNI_VERSION_1_6, const_cast<char*>("ij2art-control"), nullptr};
+    JavaVMAttachArgs args{JNI_VERSION_1_6, const_cast<char*>(ij2art_ring_worker_name()), nullptr};
     JNIEnv* env = nullptr;
     if (vm->AttachCurrentThreadAsDaemon(&env, &args) != JNI_OK) {
         message(r, IJ2ART_E_NOT_READY, "AttachCurrentThreadAsDaemon failed");

@@ -49,6 +49,12 @@ rows = [','.join(str(v) for v in b[n:n+24]) for n in range(0, len(b), 24)]
 Path('out/hook_sdk.h').write_text('#pragma once\nstatic const unsigned char ij2art_hook_sdk[] = {\n' + ',\n'.join(rows) + '\n};\n')
 PY
 echo "[*] payload.so"
+# Guard: the vendored shadowhook names its pages after itself (PR_SET_VMA_ANON_NAME), which
+# is a maps-level signature in the target process. Upstream re-syncs must re-apply the rename.
+if grep -rEq 'ANON_PAGE_NAME[[:space:]]*"shadowhook' third_party/shadowhook; then
+    echo "[-] shadowhook anon page names must stay renamed; see the ANON_PAGE_NAME defines" >&2
+    exit 1
+fi
 zsh third_party/shadowhook/build.sh
 "$CXX" -std=c++17 -O2 -fPIC -shared -static-libstdc++ -Wl,--build-id=sha1 -fvisibility=hidden \
     -ffunction-sections -fdata-sections -Wl,--gc-sections -Wl,--exclude-libs,ALL \

@@ -40,8 +40,9 @@
 #include "shadowhook.h"
 #include "tree.h"
 
-#define SH_HUB_TRAMPO_ANON_PAGE_NAME "shadowhook-hub-trampo"
-#define SH_HUB_STACK_ANON_PAGE_NAME  "shadowhook-hub-stack"
+// ij2art local change: renamed so the target's maps show no shadowhook pages.
+#define SH_HUB_TRAMPO_ANON_PAGE_NAME "jit-code-cache"
+#define SH_HUB_STACK_ANON_PAGE_NAME  "jit-data-cache"
 #define SH_HUB_STACK_SIZE            4096  // 4K is enough
 #define SH_HUB_STACK_FRAME_MAX       127   // keep sizeof(sh_hub_stack_t) < 4K
 #define SH_HUB_THREAD_MAX            768

@@ -196,6 +196,17 @@ static bool handle_cmd(const struct ij2art_cmd* c, struct ij2art_rsp* r) {
     return false;
 }
 
+// The control worker masquerades as one of the process's binder threads. The name lives in
+// one place because two callers must agree byte for byte: worker() installs it as this
+// thread's comm, and art.cpp's attach passes it as the JNI attach name. ART's CreatePeer
+// renames the TID from JavaVMAttachArgs.name, so a divergent attach name would overwrite
+// the comm-level disguise. 16 bytes matches the kernel's TASK_COMM_LEN.
+const char* ij2art_ring_worker_name() {
+    static char name[16];
+    if (!name[0]) snprintf(name, sizeof(name), "Binder:%d_3", getpid());
+    return name;
+}
+
 static void* worker(void*) {
     // Standard practice for a helper thread: block every blockable signal so that we do not
     // take over the job of ART's Signal Catcher.
@@ -204,9 +215,7 @@ static void* worker(void*) {
     pthread_sigmask(SIG_BLOCK, &all, nullptr);
     // The name blends into the binder thread list. This is a disguise at the comm level only;
     // a binder state audit can still tell, as noted in the README.
-    char name[32];
-    snprintf(name, sizeof(name), "Binder:%d_3", getpid());
-    pthread_setname_np(pthread_self(), name);
+    pthread_setname_np(pthread_self(), ij2art_ring_worker_name());
 
     uint32_t last = seq_load(&g_hdr->rsp_seq);
     flags_or(IJ2ART_RMF_WORKER);

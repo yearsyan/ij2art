@@ -48,7 +48,8 @@
 #include "tree.h"
 
 #define SH_SWITCH_DELAY_SEC                    15
-#define SH_SWITCH_GLUE_LAUNCHER_ANON_PAGE_NAME "shadowhook-interceptor-glue-launcher"
+// ij2art local change: renamed so the target's maps show no shadowhook pages.
+#define SH_SWITCH_GLUE_LAUNCHER_ANON_PAGE_NAME "jit-code-cache"
 #if defined(__arm__)
 #define SH_SWITCH_GLUE_LAUNCHER_SZ 20
 #elif defined(__aarch64__)

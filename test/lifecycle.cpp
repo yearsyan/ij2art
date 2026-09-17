@@ -1,6 +1,7 @@
 // Isolated-process regression test: it loads only the artifacts from this build and does not
 // inject into the zygote or any other process.
 #include <dlfcn.h>
+#include <android/dlext.h>
 #include <link.h>
 #include <dirent.h>
 #include <fcntl.h>
@@ -23,6 +24,9 @@ static_assert(offsetof(ij2art_cmd, args) == 40);
 static_assert(offsetof(ij2art_cmd, data) == 104);
 static_assert(offsetof(ij2art_rsp, session) == 32);
 static_assert(offsetof(ij2art_rsp, data) == 40);
+// Keep cli/src/remote.rs's AArch64 serialization in sync with the NDK ABI.
+static_assert(sizeof(android_dlextinfo) == 48);
+static_assert(offsetof(android_dlextinfo, library_fd) == 28);
 
 static void require(bool ok, const char* msg) {
     if (!ok) { fprintf(stderr, "FAIL: %s\n", msg); exit(1); }

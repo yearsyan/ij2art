@@ -42,7 +42,7 @@ extern "C" JNIEXPORT uint64_t fixture_ctor_state(uint64_t index, uint64_t compil
         void* jit = read<void*>(*api.runtime, profile().layout.runtime_jit);
         void* pool = jit ? read<void*>(jit, 0x18) : nullptr;
         if (!pool) return UINT64_MAX;
-        at<void(*)(void*, void*, void*, int)>(Symbol::add_compile_task)(pool, self, targets[index], 2);
+        at<void(*)(void*, void*, void*, int)>(Symbol::add_compile_task)(pool, self, targets[index], profile().compilation_kinds[2]);
     }
     core_t::Pause pause{core, "constructor fixture"};
     const void* quick = read<void*>(targets[index], 24);

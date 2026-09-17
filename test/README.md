@@ -1,7 +1,9 @@
 # Test suites
 
 Four complementary layers. The lower two run on the build host; the upper two need a
-rooted Android device (regressions were validated on Android 14 / Android 16 arm64).
+rooted Android device (regressions were validated on Android 14 / Android 16 /
+Android 17 arm64). The exact Android 17 build and results are recorded in
+[android17.md](../docs/android17.md).
 
 | Layer | Entry | Device | Covers |
 | --- | --- | --- | --- |
@@ -45,9 +47,33 @@ take `--mode jit|no-jit|debuggable|aot` (four ART runtime shapes per feature).
 | `run-inline.py` | inline-hook engine (`--mode art` runs it under ART) | `./build.sh`, `build-inline.sh` |
 | `run-static-jni.py` | one-shot JNI ABI / logical-disable fixtures (`--original` needs a specific libart build) | `build-jni-abi.sh` / `build-logical-disable.sh` / `build-static-original.sh` |
 | `run-monitor.py` | eBPF monitor check + 50k-event wrap | `build-monitor.sh` |
+| `run-injection.py` | production zygote carrier path, two APK cold launches, targets/clear, fd loading and ART replacement; requires an uninjected zygote | `build-art-api.sh`, `build-inline.sh`, `build-apk.sh --aot`, then sign the APK as for `run-aot-demo.py` |
 | `build-android.sh` | `lifecycle-test` + `remote-smoke` binaries | `./build.sh` |
 
 Each script prints a final `PASS:` line and creates a unique
 `/data/local/tmp/ij2art-*` directory that is removed afterwards; failures dump the
 fixture log tail and logcat. Nothing touches zygote or an existing app except through
 the documented `inject` flow.
+
+Run APK suites sequentially: they share `org.ij2art.aottest`. `run-injection.py`
+uses the production injector with only that package selected and with self-loading
+disabled. It verifies unchanged zygote/system_server PIDs and SELinux mode after
+clear. An abnormal remote-call failure preserves matching artifacts for inspection
+and never automatically retries or resumes the affected process.
+
+## Dynamic ART discovery
+
+Production no longer consumes per-build symbol/RVA manifests. See
+[ART compatibility](../docs/art-compatibility.md) for version/protocol limits and
+[中文版](../docs/art-compatibility_zh.md). After pulling the device ELF, run the
+production discovery logic on the host, including unknown-ID, relocated-address,
+missing/ambiguous-symbol and malformed-input regressions:
+
+```sh
+python3 test/run-art-discovery.py out/libart-device.so --api 37
+```
+
+Then rebuild `test/build-art-api.sh`, `test/build-logical-disable.sh` and
+`test/build-apk.sh --aot` before running the ART device matrix. Native fixture
+libraries also resolve their own ART symbols dynamically and link the existing
+ShadowHook/xDL archive for compressed debug-symbol support.

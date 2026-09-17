@@ -21,7 +21,20 @@ const NT_ARM_SSVE: u64 = 0x40b;
 const NT_ARM_ZA: u64 = 0x40c;
 const NT_ARM_ZT: u64 = 0x40d;
 const WALL: i32 = 0x4000_0000;
-pub const RET_SENTINEL: u64 = 0xdead_beef_dead_beef;
+// A canonical, untagged, deliberately unaligned instruction address. A return
+// through a tagged value can sign-extend bit 55 (observed on Pixel 7 / Android
+// 17), changing the fault PC and making a normal return look like a crash.
+// Keep exact PC matching below: stripping tags there could hide a real fault.
+pub const RET_SENTINEL: u64 = 1;
+
+/// AArch64 android_dlextinfo wire layout from <android/dlext.h>. Passing an
+/// existing fd avoids reopening /proc/self/fd, which zygote SELinux can deny.
+pub fn library_fd_extinfo(fd: i32) -> [u8; 48] {
+    let mut info = [0; 48];
+    info[..8].copy_from_slice(&0x10u64.to_le_bytes()); // ANDROID_DLEXT_USE_LIBRARY_FD
+    info[28..32].copy_from_slice(&fd.to_le_bytes());
+    info
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug, PartialEq)]
@@ -687,6 +700,7 @@ mod tests {
     enum Mode {
         Return,
         ReturnBus,
+        ReturnTbi,
         Fault,
         Timeout,
         RestoreFailure,
@@ -791,7 +805,11 @@ mod tests {
                                 t.regs.pc = 0xbeef;
                             }
                             _ => {
-                                t.regs.pc = RET_SENTINEL;
+                                t.regs.pc = if matches!(t.mode, Mode::ReturnTbi) {
+                                    ((t.regs.regs[30] << 8) as i64 >> 8) as u64
+                                } else {
+                                    t.regs.regs[30]
+                                };
                                 let signal = if matches!(t.mode, Mode::ReturnBus) {
                                     libc::SIGBUS
                                 } else {
@@ -869,6 +887,13 @@ mod tests {
     #[test]
     fn alignment_fault_at_return_sentinel_is_a_normal_return() {
         let (r, original, _) = prepare(Mode::ReturnBus);
+        assert_eq!(r.call(0x9000, &[]).unwrap(), 0x1234);
+        assert!(r.usable());
+        TRACE.with(|t| assert_eq!(t.borrow().as_ref().unwrap().regs, original));
+    }
+    #[test]
+    fn instruction_address_tag_normalization_preserves_return_sentinel() {
+        let (r, original, _) = prepare(Mode::ReturnTbi);
         assert_eq!(r.call(0x9000, &[]).unwrap(), 0x1234);
         assert!(r.usable());
         TRACE.with(|t| assert_eq!(t.borrow().as_ref().unwrap().regs, original));

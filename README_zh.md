@@ -6,6 +6,11 @@ Android app 调试工具。基于 ptrace zygote 实现：CLI 将 carrier 加载�
 项目处于原型阶段，仅维护当前实现。需要有 ptrace、进程内存和 pidfd_getfd 权限的
 root 环境；构建目标为 AArch64 / Android API 31。
 
+ART Hook 已改为[动态符号解析与运行时 ABI 探测](docs/art-compatibility_zh.md)，不再使用 libart build-id 白名单。
+
+已完成 Pixel 7 上的 Android 17 适配与验证；精确 ART 构建、测试结果和覆盖边界见
+[docs/android17_zh.md](docs/android17_zh.md)。
+
 *英文版：[README.md](README.md)*
 
 ## 生命周期
@@ -87,6 +92,7 @@ Hook SDK 构建还需要 JDK；`out/ij2art-hook-api.jar` 供替换逻辑编译�
 | [README.md](README.md) | [README_zh.md](README_zh.md) |
 | [docs/ebpf-monitor.md](docs/ebpf-monitor.md) | [docs/ebpf-monitor_zh.md](docs/ebpf-monitor_zh.md) |
 | [docs/java-calls.md](docs/java-calls.md) | [docs/java-calls_zh.md](docs/java-calls_zh.md) |
+| [docs/android17.md](docs/android17.md) | [docs/android17_zh.md](docs/android17_zh.md) |
 
 ## 使用
 

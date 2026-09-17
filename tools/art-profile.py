@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Audit/regenerate ART symbol manifests from ELF64, including .gnu_debugdata.
 
-This does not infer layouts, function signatures or guard coverage. Audit those
-separately before adding a build ID to art_profile.cpp. No third-party packages.
+Historical manifest audit helper, retained for reproducing earlier device
+reports. Production now uses art_discovery.h and does not consume these
+manifests. Use test/run-art-discovery.py for current compatibility probes.
 """
 import argparse
 import json

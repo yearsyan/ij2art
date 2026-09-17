@@ -25,7 +25,7 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 PACKAGE = 'org.ij2art.aottest'
 APK_ACTIVITY = 'org.ij2art.apktest.MainActivity'
 FLAG = '/data/local/tmp/ij2art-aottest-selfload'
-SDK_BACKUP = '_ZN8ij2art6artint10sdk_backupEv'
+SDK_BACKUP = '_ZN6ij2art6artint10sdk_backupEv'
 MODES = ('jit', 'no-jit', 'debuggable', 'aot')
 
 

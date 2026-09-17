@@ -34,6 +34,7 @@ def main():
         capabilities = ctl('hook', 'init', contains='"replacement":true')
         assert '"adapter":"staticcopy-v1"' in capabilities, capabilities
         assert '"safe_install":true' in capabilities, capabilities
+        assert '"compatibility":"symbols-probes-v1"' in capabilities, capabilities
         assert '"physical_restore":false' in capabilities, capabilities
         assert '"delete_mode":"logical_disable"' in capabilities, capabilities
         print(capabilities)

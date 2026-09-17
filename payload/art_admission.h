@@ -1,5 +1,5 @@
-// Admission and retirement for audited ART backends. Layouts and symbols come
-// from exact-build profiles; the two code-cache locking protocols stay explicit.
+// Admission and retirement for verified ART ABI families. Dynamic discovery
+// supplies symbols/layouts; the two code-cache locking protocols stay explicit.
 #pragma once
 #include <cstdint>
 #include <cstring>
@@ -47,11 +47,12 @@ struct Api {
     void* jni_dlsym_stub = nullptr;
     void (*make_visible)(void*, void*, bool) = nullptr;
 
-    // The exported StackVisitor ctor initializes 0x1f0 bytes; its dtor is trivial.
+    // Discovery checks the StackVisitor constructor extent against this capacity.
+    // Its ABI has trivial destructors and an overridable VisitFrame callback.
     // We replace only its VisitFrame vtable callback. No ART object is fabricated
     // for the target: the visitor operates on ART-owned suspended thread stacks.
     struct alignas(8) Visitor {
-        unsigned char art[0x1f0];
+        unsigned char art[0x400];
         Api* api;
         void* target;
         bool found;
@@ -256,8 +257,8 @@ struct Api {
                 continue;  // native stubs use the JNI path; retirement still removes private JNI code
             }
             if (!read<void*>(method_ptr, profile->method.data)) return {IJ2ART_E_UNSUPPORTED_ART, "method has no managed code item"};
-            // DeclaredSynchronized (0x20000) is retained. GenericJni in both
-            // audited profiles tests both synchronization bits; managed backup bytecode
+            // DeclaredSynchronized (0x20000) is retained. GenericJni in the supported
+            // ABI families tests both synchronization bits; managed backup bytecode
             // keeps its original monitor-enter/exit operations. The native-only
             // Synchronized bit (0x20) is still invalid on a managed method.
             if (flags & (0x80000000u | 0x01000000u | 0x100u | 0x400u | 0x20u))

@@ -62,13 +62,37 @@ fn run() -> Result<(), String> {
         if h != 0 {
             return Err("a missing library should return NULL".into());
         }
+        // The same nonexistent name must load successfully when an existing
+        // library fd is supplied. This exercises the AArch64 extinfo layout
+        // and four-argument linker entry used by the production injector.
+        let (libc_path, _) = procfs::lib_base(&maps, "/libc.so").ok_or("no libc")?;
+        let name = format!("{}\0", libc_path.display());
+        if !procfs::vm_write(pid, scratch + 0x1000, name.as_bytes()) {
+            return Err("library path write failed".into());
+        }
+        let fd = r.call(resolve("/libc.so", "open")?, &[scratch + 0x1000, 0])? as i32;
+        if fd < 0 {
+            return Err("library fd open failed".into());
+        }
+        if !procfs::vm_write(pid, scratch + 0x2000, &remote::library_fd_extinfo(fd)) {
+            return Err("extinfo write failed".into());
+        }
+        let h = r.call(resolve("/linker64", "__loader_android_dlopen_ext")?,
+                       &[scratch, 2, scratch + 0x2000, resolve("/libdl.so", "dlopen")?])?;
+        if h == 0 {
+            return Err("loading by fd with a nonexistent filename failed".into());
+        }
+        if r.call(resolve("/linker64", "__loader_dlclose")?, &[h])? as i32 != 0
+            || r.call(resolve("/libc.so", "close")?, &[fd as u64])? as i32 != 0 {
+            return Err("library/fd cleanup failed".into());
+        }
         if r.call(resolve("/libc.so", "munmap")?, &[scratch, 65536])? as i32 != 0 {
             return Err("scratch munmap failed".into());
         }
         Ok(())
     })();
     r.finish(result)?;
-    println!("PASS: real ptrace getpid/mmap/dlopen(NULL)/munmap and context restoration");
+    println!("PASS: real ptrace getpid/mmap/dlopen(NULL)/android_dlopen_ext(fd)/munmap and context restoration");
     let mut r = remote::Remote::new(pid);
     r.seize_all()?;
     r.reset_timeout(std::time::Duration::from_millis(200));

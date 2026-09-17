@@ -54,11 +54,16 @@ def main():
             pid = fixture.await_ready(r'JAVA_READY pid=(\d+)')
         assert pid and pid.isdigit(), 'fixture did not start'
 
+        def fixture_output():
+            if fixture:
+                return ''.join(fixture.history)
+            return device.shell('logcat -d --pid=' + pid, check=False).stdout
+
         def ctl(*words, ok=True, contains=None):
             result = device.shell(shlex.join(
                 [device.remote + '/ij2art', 'ctl', '--pid', pid, '--json', *map(str, words)]),
                 check=False)
-            assert (result.returncode == 0) == ok, result.stdout + result.stderr + ''.join(fixture.history)
+            assert (result.returncode == 0) == ok, result.stdout + result.stderr + fixture_output()
             value = json.loads(result.stdout)
             assert value['ok'] == ok, value
             if contains:
@@ -214,7 +219,8 @@ def main():
         ctl('java', 'del', blocked['id'])
         ctl('java', 'del', queued['id'])
         ctl('shutdown')
-        assert 'JNI DETECTED ERROR' not in ''.join(fixture.history), ''.join(fixture.history)
+        output = fixture_output()
+        assert 'JNI DETECTED ERROR' not in output, output
         print('PASS: typed JSON, overloads, refs, UTF-8, errors, main/new dispatch, class initialization, '
               'loader restoration/isolation, bounded jobs/results, DEX pins and draining shutdown', flush=True)
     except BaseException:

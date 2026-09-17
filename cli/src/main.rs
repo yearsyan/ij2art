@@ -383,7 +383,8 @@ fn inject_one(
         memfd_create: resolve(pid, &cp, cb, "memfd_create"),
         close: resolve(pid, &cp, cb, "close"),
         munmap: resolve(pid, &cp, cb, "munmap"),
-        dlopen: resolve(pid, &lp, lb, "__loader_dlopen"),
+        dlopen: resolve(pid, &lp, lb, "__loader_android_dlopen_ext"),
+        dlerror: resolve(pid, &lp, lb, "__loader_dlerror"),
         dlclose: resolve(pid, &lp, lb, "__loader_dlclose"),
         caller: resolve(pid, &dp, db, "dlopen"),
     };
@@ -394,6 +395,7 @@ fn inject_one(
         syms.close,
         syms.munmap,
         syms.dlopen,
+        syms.dlerror,
         syms.dlclose,
         syms.caller,
     ]
@@ -420,9 +422,19 @@ fn inject_one(
             let fd = push_file(&r, &syms, scratch, carrier_bytes, &mut owned)?;
             let path = format!("/proc/self/fd/{}\0", fd);
             vm_write_checked(pid, scratch, path.as_bytes())?;
-            let handle = r.call(syms.dlopen, &[scratch, RTLD_NOW, syms.caller])?;
+            vm_write_checked(pid, scratch + 0x2000, &remote::library_fd_extinfo(fd))?;
+            let handle = r.call(syms.dlopen, &[scratch, RTLD_NOW, scratch + 0x2000, syms.caller])?;
             if handle == 0 {
-                return Err("dlopen(carrier) returned NULL".into());
+                let error = r.call(syms.dlerror, &[])?;
+                let mut message = Vec::new();
+                for offset in 0..512 {
+                    let mut byte = [0];
+                    if error == 0 || !procfs::vm_read(pid, error + offset, &mut byte) || byte[0] == 0 {
+                        break;
+                    }
+                    message.push(byte[0]);
+                }
+                return Err(format!("android_dlopen_ext(carrier) returned NULL: {}", String::from_utf8_lossy(&message)));
             }
             owned.handle = Some(handle);
             // the ABI 4 constructor installs no hooks, so a failure before this point can
@@ -475,6 +487,7 @@ struct InjectSyms {
     close: u64,
     munmap: u64,
     dlopen: u64,
+    dlerror: u64,
     dlclose: u64,
     caller: u64,
 }

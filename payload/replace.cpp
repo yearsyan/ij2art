@@ -394,14 +394,6 @@ bool init(const ij2art_cmd& c, ij2art_rsp& r) {
     JNIEnv* env = artint::worker_env();
     if (!artint::ensure_sdk(env, r)) return false;
     std::string id = artint::libart_build_id();
-    const auto* match = art_profile::find(id.c_str());
-    if (!match) {
-        artint::message(r, 0, "{\"runtime_ready\":true,\"dex_upload\":true,\"method_lookup\":true,"
-            "\"replacement\":false,\"call_original\":false,\"safe_install\":false,"
-            "\"physical_restore\":false,\"delete_mode\":\"logical_disable\","
-            "\"adapter\":null,\"art_build_id\":\"" + id + "\"}");
-        return true;
-    }
     if (c.args_n != 0 && c.args_n != 8)
         return artint::message(r, IJ2ART_E_INVALID, "HOOK_INIT accepts zero or 8 legacy libart symbol addresses"), true;
     uint64_t addrs[8]{};
@@ -418,6 +410,22 @@ bool init(const ij2art_cmd& c, ij2art_rsp& r) {
     }, &base);
     if (!base)
         return artint::message(r, IJ2ART_E_UNSUPPORTED_ART, "libart load base unavailable"), true;
+    char compatibility_error[512]{};
+    const auto* match = art_profile::discover(base, compatibility_error, sizeof(compatibility_error));
+    if (!match) {
+        // Diagnostics contain symbol names and fixed prose; escape defensively.
+        std::string reason;
+        for (const char* p = compatibility_error; *p; ++p) {
+            if (*p == '\\' || *p == '"') reason += '\\';
+            if (static_cast<unsigned char>(*p) >= 32) reason += *p;
+        }
+        artint::message(r, 0, "{\"runtime_ready\":true,\"dex_upload\":true,\"method_lookup\":true,"
+            "\"replacement\":false,\"call_original\":false,\"safe_install\":false,"
+            "\"physical_restore\":false,\"delete_mode\":\"logical_disable\","
+            "\"adapter\":null,\"compatibility\":\"symbols-probes-v1\",\"unsupported_reason\":\"" + reason +
+            "\",\"art_build_id\":\"" + id + "\"}");
+        return true;
+    }
     if (!art_backend::initialize(*match, base, addrs, c.args_n, r)) return true;
     if (!g_initialized) {
         if (env->PushLocalFrame(16) != JNI_OK) { artint::java_error(env, r, "init local frame"); return true; }
@@ -433,7 +441,7 @@ bool init(const ij2art_cmd& c, ij2art_rsp& r) {
         "\"replacement\":true,\"replacement_update\":true,\"call_original\":true,\"safe_install\":true,"
         "\"physical_restore\":false,\"delete_mode\":\"logical_disable\","
         "\"admission\":\"entry-guard-stw-v3\",\"aot\":true,\"native\":true,\"entry_guard_hooks\":" + std::to_string(art_backend::guard_count()) + ","
-        "\"native_binding_guard\":true,\"backend\":\"" + match->name + "\","
+        "\"native_binding_guard\":true,\"compatibility\":\"symbols-probes-v1\",\"backend\":\"" + match->name + "\","
         "\"coverage\":[\"ENTRY_ONLY\"],\"full_coverage\":false,"
         "\"adapter\":\"staticcopy-v1\",\"art_build_id\":\"" + id + "\"}");
     return true;
@@ -446,7 +454,7 @@ void add(const ij2art_cmd& c, ij2art_rsp& r) {
     }
     if (!g_initialized) {
         artint::message(r, IJ2ART_E_UNSUPPORTED_ART,
-            "no validated replacement adapter for libart build " + artint::libart_build_id() +
+            "ART compatibility probes did not enable replacement for " + artint::libart_build_id() +
             "; target entrypoints and ART execution modes were not changed");
         return;
     }

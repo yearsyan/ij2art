@@ -22,7 +22,7 @@ CP="out/ij2art-hook-api.jar" LIB="$AJ" D8CP="out/ij2art-hook-api.jar" dex_out ou
     test/java/fixture/Replacement.java test/java/fixture/ConstructorReplacement.java \
     test/java/fixture/SynchronizedReplacement.java test/java/fixture/NativeBindingReplacement.java \
     out/test-padding/fixture/Padding.java
-"$NDK_CXX" $(fixture_flags) -o out/art-api-jni.so test/art_jni.cpp payload/art_profile.cpp -ldl
+"$NDK_CXX" $(fixture_flags) -o out/art-api-jni.so test/art_jni.cpp payload/art_profile.cpp out/shadowhook/libshadowhook.a -ldl
 host_test out/dex-store-test test/dex_store.cpp payload/dex_store.cpp
 out/dex-store-test out/test-replacement-dex/classes.dex
 host_test out/hook-record-test test/hook_record.cpp

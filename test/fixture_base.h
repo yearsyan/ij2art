@@ -50,7 +50,7 @@ struct Core {
     }
 };
 
-// Core plus build-bound libart symbol resolution and the GC/suspend scope the
+// Core plus dynamically verified libart symbol resolution and the GC/suspend scope the
 // entry-point probes need. The Pause tag only shows up in ART traces.
 struct ProfileCore : Core {
     uintptr_t base{};

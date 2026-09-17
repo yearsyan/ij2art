@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <android/log.h>
+#include <android/dlext.h>
 #include "../common/state.h"
 
 // ---------------- exported symbols: CLI locates them via dynsym offsets ----------------
@@ -70,7 +71,10 @@ static void* load_payload() {
     }
     char path[64];
     snprintf(path, sizeof(path), "/proc/self/fd/%d", fd);
-    void* h = dlopen(path, RTLD_NOW);
+    android_dlextinfo ext{};
+    ext.flags = ANDROID_DLEXT_USE_LIBRARY_FD;
+    ext.library_fd = fd;
+    void* h = android_dlopen_ext(path, RTLD_NOW, &ext);
     if (!h) ALOGI("payload: dlopen failed: %s", dlerror());
     close(fd);
     return h;

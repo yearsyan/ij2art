@@ -1,9 +1,10 @@
-// Library upload backend: staged in a memfd, loaded with dlopen("/proc/self/fd/N").
-// The memfd path never exists on disk, so app-domain SELinux rules about
-// executing files do not apply; maps shows the module as /memfd:NAME (deleted).
+// Library upload backend: staged in a memfd and loaded from that fd. Avoid
+// reopening /proc/self/fd under SELinux; normal mmap/execute checks still apply.
+// maps shows the module as /memfd:NAME (deleted).
 #include "loader.h"
 #include "inline_hook.h"
 #include <dlfcn.h>
+#include <android/dlext.h>
 #include <fcntl.h>
 #include <link.h>
 #include <stdio.h>
@@ -194,7 +195,10 @@ void commit(Slot& s, ij2art_rsp& r) {
     }
     char path[64];
     snprintf(path, sizeof(path), "/proc/self/fd/%d", s.fd);
-    void* handle = dlopen(path, RTLD_NOW | RTLD_LOCAL);
+    android_dlextinfo ext{};
+    ext.flags = ANDROID_DLEXT_USE_LIBRARY_FD;
+    ext.library_fd = s.fd;
+    void* handle = android_dlopen_ext(path, RTLD_NOW | RTLD_LOCAL, &ext);
     if (!handle) {
         const char* error = dlerror();
         fail(s, IJ2ART_E_LIB_DLOPEN);

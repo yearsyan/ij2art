@@ -53,4 +53,7 @@ static const Site sites16[] = {
     {"_ZN3art3jit12JitCodeCache21LookupOsrMethodHeaderEPNS_9ArtMethodE", 0xab1940, {0xd10183ff,0xa9017bfd,0xf90013f9,0xa9035ff8}}, // lookup_osr
     {"_ZN3art15instrumentation15Instrumentation33GetMaybeInstrumentedCodeForInvokeEPNS_9ArtMethodE", 0xa7fc00, {0xa9be7bfd,0xa9014ff4,0x910003fd,0xaa0103f3}}, // maybe_invoke
     {"_ZN3art15instrumentation15Instrumentation17UpdateMethodsCodeEPNS_9ArtMethodEPKv", 0xa7f2d0, {0x17e71c58,0x0,0x0,0x0}}, // outer_update
+    {"", 0x0, {0x0,0x0,0x0,0x0}}, // emplace_pointer_set
+    {"", 0x0, {0x0,0x0,0x0,0x0}}, // emplace_dependency
+    {"", 0x0, {0x0,0x0,0x0,0x0}}, // append_dependency
 };

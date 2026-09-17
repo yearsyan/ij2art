@@ -118,7 +118,8 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_ij2art_test_AdmissionMain_codeState(
         void* pool = jit ? read<void*>(jit, 0x18) : nullptr;
         if (!pool) return -1;
         auto enqueue = art_fixture::at<void(*)(void*, void*, void*, int)>(base, Symbol::add_compile_task);
-        enqueue(pool, self, method, compile_kind);
+        if (compile_kind > 2) return -1;
+        enqueue(pool, self, method, api.profile->compilation_kinds[compile_kind]);
     }
     uint64_t count = 0, deps = 0;
     if (compile_kind == -2) {
@@ -129,15 +130,13 @@ extern "C" JNIEXPORT jlong JNICALL Java_org_ij2art_test_AdmissionMain_codeState(
         const void* quick = read<const void*>(method, 24);
         if (api.erase_pointer_set) Api::for_codes(cache, [&](void* owner, const void* code) {
             if (owner != method || code == quick) return;
-            auto insert = art_fixture::at<void(*)(void*, const void*)>(base, Symbol::insert_pointer_set);
             api.erase_pointer_set(Api::bytes(cache, api.profile->layout.cache_zombies), &code);
-            insert(Api::bytes(cache, api.profile->layout.cache_osr_zombies), &code);
+            art_fixture::insert_code(base, Api::bytes(cache, api.profile->layout.cache_osr_zombies), code);
         });
         api.unlock_code(self);
         api.lock(*api.cha_lock, self);
         void* cha = read<void*>(read<void*>(*api.runtime, api.profile->layout.runtime_linker), api.profile->layout.linker_cha);
-        auto dependency = art_fixture::at<void(*)(void*, void*, void*, const void*)>(base, Symbol::add_dependency);
-        dependency(cha, method, method, static_cast<const unsigned char*>(quick) - 4);
+        art_fixture::add_dependency(base, cha, method, static_cast<const unsigned char*>(quick) - 4);
         api.unlock(*api.cha_lock, self);
         api.unlock(*api.jit_lock, self);
     }

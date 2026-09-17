@@ -14,7 +14,8 @@ enum class Symbol : size_t {
     add_compile_task, collect_cache, add_method_callback, remove_method_callback,
     optimized, invoke, update, update_impl, native_update, reinitialize, stubs,
     native_binding, native_unregister, initialize,
-    add_generic_task, insert_pointer_set, add_dependency, lookup_osr, maybe_invoke, outer_update, Count
+    add_generic_task, insert_pointer_set, add_dependency, lookup_osr, maybe_invoke, outer_update,
+    emplace_pointer_set, emplace_dependency, append_dependency, Count
 };
 struct Site {
     const char* name;
@@ -47,6 +48,9 @@ struct Profile {
     const Site* sites;
     const uint32_t* patterns;
     size_t pattern_count;
+    // Fixture requests are OSR, baseline, optimized. Android 17 inserts a fast
+    // tier into ART's enum, so these values cannot be shared across profiles.
+    int compilation_kinds[3] = {0, 1, 2};
     const Site& site(Symbol id) const { return sites[static_cast<size_t>(id)]; }
     template<class T> T at(uintptr_t base, Symbol id) const {
         uintptr_t rva = site(id).rva;
@@ -66,10 +70,12 @@ struct Profile {
         return false;
     }
 };
-const Profile* find(const char* build_id);
-// For isolated fixture processes and read-only runtime diagnostics.
+// Discover the loaded ART from its ELF symbols and verified ABI rules. There is
+// no build-ID allowlist. Errors describe the first unavailable compatibility
+// condition. The successful result is immutable for the lifetime of the DSO.
+const Profile* discover(uintptr_t base, char* error, size_t error_size);
 const Profile* from_base(uintptr_t base);
-// Resolve exported symbols first; exact-build RVA fallback covers hidden/LTO
-// symbols. Validate the address and executable prologue before any mutation.
+// Check file/memory identity and entry bytes before any mutation. Prologues
+// come from the device's ELF, never from a compiled-in RVA manifest.
 bool validate(const Profile&, uintptr_t base, char* error, size_t error_size);
 }

@@ -46,7 +46,7 @@ mv "$WORK-repl-dex/classes.dex" "$WORK-replacement.dex"
 
 echo "[*] native libs"
 "$CXX" $(fixture_flags) \
-    -o "$WORK-zip/lib/arm64-v8a/libapkbridge.so" test/apk/jni/apkbridge.cpp payload/art_profile.cpp -ldl -llog
+    -o "$WORK-zip/lib/arm64-v8a/libapkbridge.so" test/apk/jni/apkbridge.cpp payload/art_profile.cpp out/shadowhook/libshadowhook.a -ldl -llog
 cp out/payload.so "$WORK-zip/lib/arm64-v8a/libpayload.so"
 
 echo "[*] package"

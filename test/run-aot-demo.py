@@ -76,7 +76,7 @@ def main():
             # guards as user-removable records / shutdown blockers.
             assert ctl('hook', 'init') == caps
             assert not ctl('inline', 'list')
-            sdk = call('_ZN8ij2art6artint10sdk_backupEv', lib_name='/libpayload.so')
+            sdk = call(lib.SDK_BACKUP, lib_name='/libpayload.so')
             assert call('fixture_capture_backup', sdk) == 1
             state = call('fixture_aot_state')
             if mode == 'speed':

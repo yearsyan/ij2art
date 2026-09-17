@@ -38,7 +38,7 @@ echo "[*] carrier.so (with payload.so embedded)"
 # older cores these instructions live in hint space and execute as NOPs, so this does not
 # restrict the armv8-a baseline chosen for the rest of carrier.
 "$NDK_CLANG" -march=armv8.5-a -c carrier/teardown_stub.S -o out/teardown_stub.o
-"$CXX" -O2 -fPIC -shared -Wl,--build-id=sha1 -fvisibility=hidden -ffunction-sections -fdata-sections \
+"$CXX" -O2 -fPIC -shared -static-libstdc++ -Wl,--build-id=sha1 -fvisibility=hidden -ffunction-sections -fdata-sections \
     -I out \
     -Wl,--gc-sections -o out/carrier.so carrier/carrier.cpp out/teardown_stub.o out/payload_blob.o -ldl -llog
 

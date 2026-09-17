@@ -9,6 +9,11 @@ The project is a prototype and only maintains the current implementation. It req
 root environment with ptrace, process-memory, and `pidfd_getfd` permissions; the build
 target is AArch64 / Android API 31.
 
+ART replacement now uses [dynamic symbols and runtime ABI probes](docs/art-compatibility.md), with no libart build-ID allowlist.
+
+Android 17 has been adapted and verified on Pixel 7; the exact ART build, test
+results and remaining scope are recorded in [docs/android17.md](docs/android17.md).
+
 *Chinese version: [README_zh.md](README_zh.md)*
 
 ## Lifecycle
@@ -104,6 +109,7 @@ updated together:
 | [README.md](README.md) | [README_zh.md](README_zh.md) |
 | [docs/ebpf-monitor.md](docs/ebpf-monitor.md) | [docs/ebpf-monitor_zh.md](docs/ebpf-monitor_zh.md) |
 | [docs/java-calls.md](docs/java-calls.md) | [docs/java-calls_zh.md](docs/java-calls_zh.md) |
+| [docs/android17.md](docs/android17.md) | [docs/android17_zh.md](docs/android17_zh.md) |
 
 ## Usage
 

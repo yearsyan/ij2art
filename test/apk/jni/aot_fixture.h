@@ -64,7 +64,7 @@ uint64_t exercise(int count) {
             else api<WriteMember>(Symbol::initialize)(instr, m, requested);
             if (quick(m) != expected) return 500 + i;
             for (Symbol offset : {Symbol::update_impl, Symbol::outer_update, Symbol::native_update}) {
-                api<WriteMember>(offset)(instr, m, requested);
+                if (auto writer = api<WriteMember>(offset)) writer(instr, m, requested);
                 if (quick(m) != expected) return 600 + i;
             }
             for (Symbol offset : {Symbol::reinitialize, Symbol::stubs}) {

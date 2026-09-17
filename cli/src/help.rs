@@ -29,8 +29,9 @@ Global flags
   --help/-h  show help
 
 Typical flow (requires root)
-  adb push out/ij2art out/carrier.so /data/local/tmp/ij2art/
-  ij2art inject --carrier /data/local/tmp/ij2art/carrier.so --all
+  adb push out/ij2art /data/local/tmp/ij2art-cli
+  # On the device, chmod +x ij2art-cli and run as root:
+  ./ij2art-cli inject --all
   ij2art launch com.example.app --wait 20
   ij2art ctl --pkg com.example.app ping
 
@@ -258,12 +259,18 @@ Chained instance calls (a static factory's return value as the receiver)
 
 const INJECT: &str = r#"inject / status / targets / clear / launch
 
-  ij2art inject --carrier C.so [--all | --targets a,b,c] [--force] [--verbose] [--pid P]
-      inject carrier (with the payload inside) into zygote; also inject into every
+  ij2art inject [--carrier C.so] [--all | --targets a,b,c] [--force] [--verbose] [--pid P]
+      inject the embedded carrier (with the payload inside) into zygote; also inject into every
       existing USAP pool member one by one.
       Reuse the existing injection when it is already injected and the build identity
       matches, only filling in missing USAPs; --force redoes it from scratch.
       --json outputs {"zygote_pid","zygote_injected","zygote_reused","usaps":[{pid,ok}]}.
+
+  Carrier selection
+      inject/status/targets/clear use the carrier embedded in this executable by default.
+      No separate carrier.so or payload.so is required. --carrier PATH explicitly
+      selects an external carrier for that command; use the same build for the whole
+      session. Build identity checks also apply to embedded carriers.
 
   zygote auto-selection (multi-instance ROMs, e.g. OPPO's secondary zygote_ocomp):
     1. the target process is running -> its parent is the zygote that forked it
@@ -279,7 +286,7 @@ const INJECT: &str = r#"inject / status / targets / clear / launch
       show injection status; when not injected the exit code is 1 and the --json data
       is {"injected":false}.
 
-  ij2art targets [--pid P] (--all | --targets a,b,c | --none)
+  ij2art targets [--carrier PATH] [--pid P] (--all | --targets a,b,c | --none)
       atomically update the target list on zygote + existing USAPs; roll everything
       back on failure.
 

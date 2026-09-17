@@ -1,11 +1,12 @@
 // ij2art CLI -- a Frida-style one-shot injection tool with no daemon.
 // Usage:
 //   ij2art status [--carrier PATH]                      show zygote injection state
-//   ij2art inject --carrier C.so [--all | --targets a,b,c]
+//   ij2art inject [--carrier C.so] [--all | --targets a,b,c]
 //   ij2art targets [--carrier PATH] --all | --targets a,b,c | --none
 //   ij2art launch <package>                             force-stop, then cold-start the target
 //   ij2art ctl --pid P | --pkg NAME <action>            control ring RPC (see usage)
 mod art;
+mod carrier;
 mod ctl;
 mod elf;
 mod help;
@@ -25,7 +26,6 @@ use remote::{find_carrier, Remote};
 use std::path::PathBuf;
 
 const IDENT: &str = "ij2art-carrier/4"; // keep in sync with the carrier; bump on an ABI change
-const DEFAULT_CARRIER: &str = "/data/local/tmp/ij2art/carrier.so";
 // The memfd name masquerades as an entry that really exists in the system. The CLI tells
 // carriers apart by the content identification string, never by the name.
 const CARRIER_MEMFD_NAME: &str = "jit-zygote-cache";
@@ -145,7 +145,10 @@ fn pick_zygote(args: &[String]) -> Result<i32, String> {
 // ---------------- status ----------------
 fn cmd_status(args: &[String]) -> i32 {
     let json = has_flag(args, "--json");
-    let carrier = PathBuf::from(opt_value(args, "--carrier", DEFAULT_CARRIER));
+    let carrier = match carrier::load(args) {
+        Ok(bytes) => bytes,
+        Err(e) => return report_err(json, e, 1),
+    };
     let z = match pick_zygote(args) {
         Ok(z) => z,
         Err(e) => return report_err(json, e, 1),
@@ -220,7 +223,10 @@ fn cmd_status(args: &[String]) -> i32 {
 // ---------------- inject ----------------
 fn cmd_inject(args: &[String]) -> i32 {
     let json = has_flag(args, "--json");
-    let carrier = PathBuf::from(opt_value(args, "--carrier", DEFAULT_CARRIER));
+    let carrier = match carrier::load(args) {
+        Ok(bytes) => bytes,
+        Err(e) => return report_err(json, e, 1),
+    };
     let (csv, flags) = parse_target_args(args);
     // the diagnostic log flag is not part of target selection; it is OR'd in separately
     // (see common/state.h IJ2ART_F_VERBOSE)
@@ -271,12 +277,8 @@ fn cmd_inject(args: &[String]) -> i32 {
         Err(e) => return report_err(json, format!("state check failed: {}", e), 1),
     }
 
-    let Ok(carrier_bytes) = std::fs::read(&carrier) else {
-        return report_err(json, format!("failed to read carrier: {}", carrier.display()), 1);
-    };
-
     if install_parent {
-        match inject_one(zpid, &carrier_bytes, &carrier, &csv, flags) {
+        match inject_one(zpid, &carrier, &csv, flags) {
             Ok(_) => {
                 if !json {
                     println!("[+] zygote injection complete and verified")
@@ -311,7 +313,6 @@ fn cmd_inject(args: &[String]) -> i32 {
         }
         match inject_one(
             upid,
-            &carrier_bytes,
             &carrier,
             &effective_csv,
             effective_flags,
@@ -363,16 +364,15 @@ fn cmd_inject(args: &[String]) -> i32 {
 /// before detaching; do not keep making calls once the execution state is unknown.
 fn inject_one(
     pid: i32,
-    carrier_bytes: &[u8],
-    carrier: &std::path::Path,
+    carrier: &[u8],
     csv: &str,
     flags: u32,
 ) -> Result<(), String> {
     // validate local artifacts and configuration before touching the remote side, so that
     // predictable errors do not land inside the hijack window
     validate_targets(csv)?;
-    let setup_v = elf::sym_vaddr(carrier, "ij2art_setup").ok_or("carrier has no setup")?;
-    let unhook_v = elf::sym_vaddr(carrier, "ij2art_unhook").ok_or("carrier has no unhook")?;
+    let setup_v = elf::sym_vaddr_bytes(carrier, "ij2art_setup").ok_or("carrier has no setup")?;
+    let unhook_v = elf::sym_vaddr_bytes(carrier, "ij2art_unhook").ok_or("carrier has no unhook")?;
     let zmaps = procfs::maps(pid).map_err(|e| e.to_string())?;
     let (cp, cb) = procfs::lib_base(&zmaps, "/libc.so").ok_or("libc.so not found")?;
     let (lp, lb) = procfs::lib_base(&zmaps, "/linker64").ok_or("only 64-bit linker is supported")?;
@@ -419,7 +419,7 @@ fn inject_one(
                 return Err("remote mmap failed".into());
             }
             owned.scratch = Some(scratch);
-            let fd = push_file(&r, &syms, scratch, carrier_bytes, &mut owned)?;
+            let fd = push_file(&r, &syms, scratch, carrier, &mut owned)?;
             let path = format!("/proc/self/fd/{}\0", fd);
             vm_write_checked(pid, scratch, path.as_bytes())?;
             vm_write_checked(pid, scratch + 0x2000, &remote::library_fd_extinfo(fd))?;
@@ -602,7 +602,10 @@ fn stop_family(zpid: i32) -> Result<Vec<Remote>, String> {
 // ---------------- targets ----------------
 fn cmd_targets(args: &[String]) -> i32 {
     let json = has_flag(args, "--json");
-    let carrier = PathBuf::from(opt_value(args, "--carrier", DEFAULT_CARRIER));
+    let carrier = match carrier::load(args) {
+        Ok(bytes) => bytes,
+        Err(e) => return report_err(json, e, 1),
+    };
     let (csv, flags) = parse_target_args(args);
     let flags = flags | if has_flag(args, "--verbose") { state::F_VERBOSE } else { 0 };
     let zpid = match pick_zygote(args) {
@@ -669,7 +672,10 @@ fn cmd_targets(args: &[String]) -> i32 {
 // ---------------- clear ----------------
 fn cmd_clear(args: &[String]) -> i32 {
     let json = has_flag(args, "--json");
-    let carrier = PathBuf::from(opt_value(args, "--carrier", DEFAULT_CARRIER));
+    let carrier = match carrier::load(args) {
+        Ok(bytes) => bytes,
+        Err(e) => return report_err(json, e, 1),
+    };
     // with --pid, clear only that instance; otherwise clear every injected zygote instance.
     // On a ROM with several zygotes the injector may have picked any of them, so pre-check
     // each one with maps, and never stop an instance that is not injected.
@@ -711,7 +717,7 @@ fn cmd_clear(args: &[String]) -> i32 {
     0
 }
 
-fn clear_family(zpid: i32, carrier: &std::path::Path) -> Result<usize, String> {
+fn clear_family(zpid: i32, carrier: &[u8]) -> Result<usize, String> {
     let mut family = stop_family(zpid)?;
     let mut cleared = 0;
     let mut errors = Vec::new();
@@ -732,7 +738,7 @@ fn clear_family(zpid: i32, carrier: &std::path::Path) -> Result<usize, String> {
             let maps = procfs::maps(r.pid).map_err(|e| e.to_string())?;
             let (lp, lb) = procfs::lib_base(&maps, "/linker64").ok_or("linker64 not found")?;
             let dlclose = resolve(r.pid, &lp, lb, "__loader_dlclose");
-            let unhook = elf::sym_vaddr(carrier, "ij2art_unhook").ok_or("no unhook")?;
+            let unhook = elf::sym_vaddr_bytes(carrier, "ij2art_unhook").ok_or("no unhook")?;
             if dlclose == 0 {
                 return Err("no dlclose".into());
             }
@@ -769,7 +775,10 @@ fn clear_family(zpid: i32, carrier: &std::path::Path) -> Result<usize, String> {
 // ---------------- zeromagic (debug) ----------------
 // Zero g_state.magic in the zygote to simulate a half-injection.
 fn cmd_zeromagic(args: &[String]) -> i32 {
-    let carrier = PathBuf::from(opt_value(args, "--carrier", DEFAULT_CARRIER));
+    let carrier = match carrier::load(args) {
+        Ok(bytes) => bytes,
+        Err(e) => return report_err(false, e, 1),
+    };
     let zpid = match pick_zygote(args) {
         Ok(z) => z,
         Err(e) => {
@@ -781,7 +790,7 @@ fn cmd_zeromagic(args: &[String]) -> i32 {
         eprintln!("[-] not injected");
         return 1;
     };
-    let Some(state_v) = elf::sym_vaddr(&carrier, "g_state") else {
+    let Some(state_v) = elf::sym_vaddr_bytes(&carrier, "g_state") else {
         eprintln!("[-] no g_state symbol");
         return 1;
     };

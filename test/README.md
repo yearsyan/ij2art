@@ -65,6 +65,11 @@ unchanged zygote/system_server PIDs and SELinux mode after
 clear. An abnormal remote-call failure preserves matching artifacts for inspection
 and never automatically retries or resumes the affected process.
 
+The injection suite deploys the CLI without a carrier file and uses its embedded
+image for inject/reinject, status, targets and clear. It also checks an explicit
+external override, rejection of a changed build ID for all four commands, and
+status/clear after renaming the executable and changing the working directory.
+
 The APK Java-call suite waits for WebView's debugging socket to settle. On `eng` /
 `userdebug` ROMs, Chromium keeps this socket enabled even after a successful disable
 call; the suite checks that platform policy instead of requiring it to disappear.

@@ -76,7 +76,10 @@ absent. The Rust `aarch64-linux-android` target is required; the cross linker co
 `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER`, exported by `sdk.env.sh` — source
 `../sdk.env.sh` first when building inside `cli/` alone.
 
-Artifacts: `out/ij2art`, `out/carrier.so` (with the payload embedded), and `out/payload.so`.
+Deploy only `out/ij2art`: it embeds the carrier, payload and eBPF program. The build
+also keeps `out/carrier.so`, `out/payload.so`, `out/monitor.bpf.o` and the Hook SDK JAR
+for development and tests. Releases provide the standalone `ij2art-android-arm64`
+binary and an archive with the CLI, SDK JAR and third-party notices.
 Use the GNU build-id to match a local artifact against a remote instance; never mix builds.
 Building the Hook SDK additionally requires a JDK; `out/ij2art-hook-api.jar` is used to
 compile replacement logic.
@@ -115,15 +118,15 @@ updated together:
 
 ```sh
 # The deploy directory and file names are arbitrary (random names included): the CLI
-# never reads its own file name, and the carrier is passed explicitly via --carrier.
+# never reads its own file name. The carrier and payload are embedded.
+adb shell mkdir -p /data/local/tmp/deploy
 adb push out/ij2art /data/local/tmp/deploy/cli
-adb push out/carrier.so /data/local/tmp/deploy/
 adb shell
 su
 cd /data/local/tmp/deploy
 chmod +x cli
 
-./cli inject --carrier ./carrier.so --targets com.example.target
+./cli inject --targets com.example.target
 ./cli status
 ./cli launch com.example.target
 ./cli targets --targets com.a,com.b
@@ -145,9 +148,10 @@ with `--targets`, or specify its verified parent with `--pid`. Keep that PID for
 subsequent `status`, `targets` and `clear` commands.
 
 Only processes started after injection are affected. `clear` does not unload the
-carrier/payload from already-running apps; restart the app to clear them. The CLI, carrier,
-and payload must come from the same build; before replacing artifacts, end the injection
-session and restart the affected processes.
+carrier/payload from already-running apps; restart the app to clear them. Keep the
+matching CLI build until the injection session is cleared, then restart affected apps
+before switching builds. `--carrier PATH` explicitly overrides the embedded carrier
+for `inject`, `status`, `targets` or `clear`; use that same carrier for the whole session.
 
 ## Control ring
 

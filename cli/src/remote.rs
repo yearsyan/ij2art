@@ -551,25 +551,25 @@ pub fn syscall_trace<F: FnMut(&SyscallEvent, &[procfs::MapEnt])>(
 /// recognize an old carrier and refuse incompatible operations on it.
 pub fn find_carrier(
     pid: i32,
-    carrier_file: &std::path::Path,
+    carrier_bytes: &[u8],
     ident: &str,
 ) -> Result<Option<(u64, u64, u64)>, String> {
-    if let Some(x) = find_via_ident(pid, carrier_file, ident)? {
-        verify_build(pid, x.0, carrier_file)?;
+    if let Some(x) = find_via_ident(pid, carrier_bytes, ident)? {
+        verify_build(pid, x.0, carrier_bytes)?;
         return Ok(Some(x));
     }
-    find_via_got(pid, carrier_file)
+    find_via_got(pid, carrier_bytes)
 }
 
 /// A) scanning the ident content
 fn find_via_ident(
     pid: i32,
-    carrier_file: &std::path::Path,
+    carrier_bytes: &[u8],
     ident: &str,
 ) -> Result<Option<(u64, u64, u64)>, String> {
     let state_v =
-        crate::elf::sym_vaddr(carrier_file, "g_state").ok_or("g_state symbol not found in carrier")?;
-    let setup_v = crate::elf::sym_vaddr(carrier_file, "ij2art_setup")
+        crate::elf::sym_vaddr_bytes(carrier_bytes, "g_state").ok_or("g_state symbol not found in carrier")?;
+    let setup_v = crate::elf::sym_vaddr_bytes(carrier_bytes, "ij2art_setup")
         .ok_or("ij2art_setup symbol not found in carrier")?;
 
     let maps = procfs::maps(pid).map_err(|e| e.to_string())?;
@@ -600,23 +600,21 @@ fn find_via_ident(
     Ok(None)
 }
 
-/// B) GOT reverse lookup: in zygote and in pool members the GOT slot of the hook always
-///    points into carrier .text. A .text fingerprint (the first 32 bytes of the setup
-///    function) is then used for version verification, so that an old and a new version
-///    cannot be mismatched and called incorrectly.
+/// B) GOT reverse lookup: in zygote and in pool members the GOT slot of the hook
+///    points into carrier .text. Verify the same GNU build-id before using its symbols.
 fn find_via_got(
     pid: i32,
-    carrier_file: &std::path::Path,
+    carrier_bytes: &[u8],
 ) -> Result<Option<(u64, u64, u64)>, String> {
     let state_v =
-        crate::elf::sym_vaddr(carrier_file, "g_state").ok_or("g_state symbol not found in carrier")?;
-    let setup_v = crate::elf::sym_vaddr(carrier_file, "ij2art_setup")
+        crate::elf::sym_vaddr_bytes(carrier_bytes, "g_state").ok_or("g_state symbol not found in carrier")?;
+    let setup_v = crate::elf::sym_vaddr_bytes(carrier_bytes, "ij2art_setup")
         .ok_or("ij2art_setup symbol not found in carrier")?;
 
     let Some(base) = got_base(pid)? else {
         return Ok(None);
     };
-    verify_build(pid, base, carrier_file)?;
+    verify_build(pid, base, carrier_bytes)?;
     Ok(Some((base, base + state_v, base + setup_v)))
 }
 
@@ -664,14 +662,14 @@ fn got_base(pid: i32) -> Result<Option<u64>, String> {
     Ok(Some(base))
 }
 
-/// Lenient location, without the .text fingerprint verification. This is meant for the
+/// Lenient location, without build-id verification. This is meant for the
 /// rollback case, where a half-injected or old carrier may not match the local build.
 pub fn find_carrier_lenient(
     pid: i32,
-    carrier_file: &std::path::Path,
+    carrier_bytes: &[u8],
     ident: &str,
 ) -> Result<Option<u64>, String> {
-    if let Some((base, _, _)) = find_via_ident(pid, carrier_file, ident)? {
+    if let Some((base, _, _)) = find_via_ident(pid, carrier_bytes, ident)? {
         return Ok(Some(base));
     }
     got_base(pid)
@@ -681,9 +679,9 @@ fn find_subslice(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
-fn verify_build(pid: i32, base: u64, file: &std::path::Path) -> Result<(), String> {
+fn verify_build(pid: i32, base: u64, bytes: &[u8]) -> Result<(), String> {
     let (offset, expected) =
-        crate::elf::build_id(file).ok_or("carrier is missing the GNU build-id; rebuild it")?;
+        crate::elf::build_id(bytes).ok_or("carrier is missing the GNU build-id; rebuild it")?;
     let mut actual = vec![0; expected.len()];
     if !procfs::vm_read(pid, base + offset, &mut actual) || actual != expected {
         return Err("carrier build mismatch; keeping the execution state, process it with the original build before injecting again".into());

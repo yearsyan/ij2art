@@ -65,7 +65,10 @@ SIGSTOP 停止态——此时不能用 SIGCONT 或重新 inject「恢复」，�
 `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER` 提供，单独在 `cli/` 下构建时先
 `source ../sdk.env.sh`。
 
-产物：`out/ij2art`、`out/carrier.so`（内嵌 payload）、`out/payload.so`。
+部署时只需 `out/ij2art`，其中已内嵌 carrier、payload 和 eBPF 程序。构建仍保留
+`out/carrier.so`、`out/payload.so`、`out/monitor.bpf.o` 和 Hook SDK JAR，供开发和
+测试使用。Release 提供独立的 `ij2art-android-arm64` 文件，以及包含 CLI、SDK JAR
+和第三方声明的压缩包。
 匹配本地产物与远端实例时使用 GNU build-id，不能混用不同构建。
 Hook SDK 构建还需要 JDK；`out/ij2art-hook-api.jar` 供替换逻辑编译使用。
 
@@ -98,15 +101,15 @@ Hook SDK 构建还需要 JDK；`out/ij2art-hook-api.jar` 供替换逻辑编译�
 
 ```sh
 # 部署目录与文件名可任意命名（含随机名）：CLI 运行时不读取自身文件名，
-# carrier 由 --carrier 显式指定。
+# carrier 和 payload 已内嵌。
+adb shell mkdir -p /data/local/tmp/deploy
 adb push out/ij2art /data/local/tmp/deploy/cli
-adb push out/carrier.so /data/local/tmp/deploy/
 adb shell
 su
 cd /data/local/tmp/deploy
 chmod +x cli
 
-./cli inject --carrier ./carrier.so --targets com.example.target
+./cli inject --targets com.example.target
 ./cli status
 ./cli launch com.example.target
 ./cli targets --targets com.a,com.b
@@ -124,8 +127,9 @@ chmod +x cli
 后续 `status`、`targets`、`clear` 也应使用同一个 PID。
 
 只影响注入后启动的进程。`clear` 不卸载已运行 App 中的 carrier/payload，重启对应 App
-后清除。CLI、carrier 和 payload 应使用同一套构建产物；替换产物前需结束注入会话并
-重启相关进程。
+后清除。结束注入会话前保留匹配版本的 CLI，切换版本前先清除注入并重启相关 App。
+`inject`、`status`、`targets`、`clear` 均可通过 `--carrier PATH` 显式覆盖内嵌
+carrier；使用覆盖选项时，整个会话应使用同一份 carrier。
 
 ## 控制环
 

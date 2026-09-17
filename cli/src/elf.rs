@@ -33,10 +33,12 @@ fn rd64(b: &[u8], o: usize) -> u64 {
 
 fn read_elf(path: &Path) -> Option<Vec<u8>> {
     let b = std::fs::read(path).ok()?;
-    if b.len() < 64 || &b[0..4] != b"\x7fELF" || b[4] != 2 {
-        return None; // 64-bit only
-    }
+    elf64(&b)?;
     Some(b)
+}
+
+fn elf64(b: &[u8]) -> Option<()> {
+    (b.len() >= 64 && &b[0..4] == b"\x7fELF" && b[4] == 2 && b[5] == 1).then_some(())
 }
 
 // ---------------- A) section-header path (the original implementation) ----------------
@@ -413,8 +415,13 @@ fn with_phdr<T>(
 
 pub fn sym_vaddr(path: &Path, name: &str) -> Option<u64> {
     let b = read_elf(path)?;
-    sections_sym_vaddr(&b, name).or_else(|| {
-        with_phdr(&b, |r, t, n| {
+    sym_vaddr_bytes(&b, name)
+}
+
+pub fn sym_vaddr_bytes(b: &[u8], name: &str) -> Option<u64> {
+    elf64(b)?;
+    sections_sym_vaddr(b, name).or_else(|| {
+        with_phdr(b, |r, t, n| {
             let (syms, strs) = load_dynsym(r, &t, n)?;
             find_sym(&syms, &strs, name)
         })
@@ -535,8 +542,8 @@ impl MemElf {
 
 /// The GNU build-id lives in a read-only PT_NOTE; this returns the vaddr and the content
 /// of the descriptor bytes.
-pub fn build_id(path: &Path) -> Option<(u64, Vec<u8>)> {
-    let b = read_elf(path)?;
+pub fn build_id(b: &[u8]) -> Option<(u64, Vec<u8>)> {
+    elf64(b)?;
     let phoff = get!(b, 0x20, u64);
     let phent = get!(b, 0x36, u16) as u64;
     let phnum = get!(b, 0x38, u16) as u64;

@@ -8,7 +8,10 @@ Unlike the self-load suites this exercises the production carrier path.
 """
 import json
 import shlex
+import struct
+import tempfile
 import time
+from pathlib import Path
 
 import lib
 
@@ -19,9 +22,10 @@ def main():
     clean = True
     fixture_installed = False
     zygote = None
+    executable = device.remote + '/ij2art'
     try:
         device.require_root('zygote injection regression')
-        device.push({'ij2art': 'out/ij2art', 'carrier.so': 'out/carrier.so',
+        device.push({'ij2art': 'out/ij2art',
                      'app.apk': 'out/aot-apktest-aligned-signed.apk',
                      'replacement.dex': 'out/aot-apk-replacement.dex',
                      'inline-fixture.so': 'out/inline-fixture.so'})
@@ -32,9 +36,8 @@ def main():
             if mutation:
                 clean = False
             selected = ['--pid', str(zygote)] if zygote and action != 'launch' else []
-            result = device.shell(shlex.join([
-                device.remote + '/ij2art', action, *args, '--json',
-                '--carrier', device.remote + '/carrier.so', *selected]), check=False)
+            result = device.shell('cd / && ' + shlex.join([
+                executable, action, *args, '--json', *selected]), check=False)
             print(action + ': ' + result.stdout.strip(), flush=True)
             if result.stderr:
                 print(result.stderr.strip(), flush=True)
@@ -64,6 +67,49 @@ def main():
         cli('inject', '--targets', lib.PACKAGE)  # idempotence / existing USAP repair
         state = cli('status')
         assert state['targets'] == [lib.PACKAGE] and not state['targets_all_user_apps'], state
+
+        # Explicit overrides still work, but a different build must not be used
+        # to inspect or mutate an existing session. Change only the GNU note.
+        carrier = bytearray((lib.REPO / 'out/carrier.so').read_bytes())
+        phoff = struct.unpack_from('<Q', carrier, 32)[0]
+        phent, phnum = struct.unpack_from('<HH', carrier, 54)
+        changed = False
+        for i in range(phnum):
+            ph = phoff + i * phent
+            if struct.unpack_from('<I', carrier, ph)[0] != 4:
+                continue
+            at = struct.unpack_from('<Q', carrier, ph + 8)[0]
+            end = at + struct.unpack_from('<Q', carrier, ph + 32)[0]
+            while at + 12 <= end:
+                namesz, descsz, kind = struct.unpack_from('<III', carrier, at)
+                name = at + 12
+                desc = name + ((namesz + 3) & ~3)
+                if kind == 3 and carrier[name:name + namesz] == b'GNU\0' and descsz:
+                    carrier[desc] ^= 1
+                    changed = True
+                    break
+                at = desc + ((descsz + 3) & ~3)
+            if changed:
+                break
+        assert changed, 'carrier GNU build-id not found'
+        good, bad = device.remote + '/override.so', device.remote + '/mismatched.so'
+        device.raw('push', str(lib.REPO / 'out/carrier.so'), good)
+        with tempfile.TemporaryDirectory(prefix='ij2art-carrier-') as local:
+            path = Path(local) / 'mismatched.so'
+            path.write_bytes(carrier)
+            device.raw('push', str(path), bad)
+        assert cli('status', '--carrier', good) == state
+        for action, extra in [('status', []), ('inject', ['--targets', lib.PACKAGE]),
+                              ('targets', ['--none']), ('clear', [])]:
+            clean = False
+            result = device.shell(shlex.join([executable, action, *extra, '--json',
+                                              '--carrier', bad, '--pid', str(zygote)]), check=False)
+            value = json.loads(result.stdout)
+            assert result.returncode != 0 and not value['ok'] and 'carrier build mismatch' in value['error']['message'], result.stdout + result.stderr
+            clean = True  # A verified identity refusal; no abnormal remote call.
+            assert cli('status') == state
+        device.shell(shlex.join(['rm', good, bad]))
+        print('PASS: embedded carrier, explicit override and mismatched-build rejection for status/inject/targets/clear', flush=True)
 
         def launch():
             cli('launch', lib.PACKAGE, '--wait', '20')
@@ -121,6 +167,10 @@ def main():
         cli('targets', '--targets', lib.PACKAGE)
         pid = launch()
         assert 'pong' in lib.Ctl(device, pid, '')('--wait', '5', 'ping')
+        renamed = device.remote + '/single-file-cli'
+        device.shell(shlex.join(['mv', executable, renamed]))
+        executable = renamed
+        assert cli('status')['injected']
         cli('clear')
         injected = False
         final = cli('status', status=True)
@@ -133,8 +183,7 @@ def main():
             lib.apk_cleanup(device, reset=False)
         if injected and clean:
             # Ordinary fixture failures still release the session we created.
-            result = device.shell(shlex.join([device.remote + '/ij2art', 'clear',
-                                              '--carrier', device.remote + '/carrier.so',
+            result = device.shell(shlex.join([executable, 'clear',
                                               '--pid', str(zygote)]), check=False)
             clean = result.returncode == 0
         if clean:

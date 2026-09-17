@@ -49,9 +49,9 @@ echo "[*] monitor.bpf.o (eBPF)"
     -D__EXPORTED_HEADERS__ -I bpf -I third_party/kernel-uapi/include \
     -c bpf/sys.c -o out/monitor.bpf.o
 
-echo "[*] ij2art (CLI)"
+echo "[*] ij2art (CLI with carrier, payload and eBPF embedded)"
 (cd cli && cargo build --release --target aarch64-linux-android --quiet)
 cp cli/target/aarch64-linux-android/release/ij2art out/
 cat third_party/libbpf/NOTICE third_party/libbpf/LICENSE.BSD-2-Clause >> out/THIRD_PARTY_NOTICES.txt
 
-echo "[+] done: out/{ij2art, carrier.so, payload.so, monitor.bpf.o}"
+echo "[+] done: deploy out/ij2art; separate libraries and SDK remain in out/ for development/tests"

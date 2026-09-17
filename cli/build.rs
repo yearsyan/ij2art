@@ -1,21 +1,31 @@
-// Copy out/monitor.bpf.o into OUT_DIR so that include_bytes! can embed it.
-// If ./build.sh has not been run first, an empty file is dropped in instead: compilation
-// still succeeds, and the error is reported clearly at runtime (this keeps host-side
-// testing convenient).
+// Embed build.sh's carrier (which contains the payload) and eBPF object in the CLI.
+// Host-only tests can use empty stubs; Android builds must contain both artifacts.
 use std::env;
 use std::fs;
 use std::path::PathBuf;
 
 fn main() {
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let src = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../out/monitor.bpf.o");
-    let dst = out.join("monitor_bpf.o");
-    if src.exists() {
-        fs::copy(&src, &dst).expect("copy monitor.bpf.o");
-    } else {
-        fs::write(&dst, []).expect("write empty stub");
+    let android = env::var("CARGO_CFG_TARGET_OS").unwrap() == "android";
+    for (source, embedded) in [
+        ("monitor.bpf.o", "monitor_bpf.o"),
+        ("carrier.so", "carrier.so"),
+    ] {
+        let src = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
+            .join("../out")
+            .join(source);
+        println!("cargo:rerun-if-changed={}", src.display());
+        let bytes = match fs::read(&src) {
+            Ok(bytes) => bytes,
+            Err(e) if !android && e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(e) => panic!("cannot embed {}: {e}; run ./build.sh first", src.display()),
+        };
+        assert!(
+            !android || !bytes.is_empty(),
+            "{source} is empty; run ./build.sh first"
+        );
+        fs::write(out.join(embedded), bytes).expect("write embedded artifact");
     }
-    println!("cargo:rerun-if-changed={}", src.display());
 
     let libbpf =
         PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../third_party/libbpf");

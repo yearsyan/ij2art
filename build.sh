@@ -15,6 +15,15 @@ javac --release 8 -Xlint:-options -cp "$SDK/platforms/android-36/android.jar" \
     -d out/sdk-classes payload/java/org/ij2art/*.java
 jar cf out/ij2art-hook-api.jar -C out/sdk-classes .
 "$BUILD_TOOLS/d8" --min-api 31 --lib "$SDK/platforms/android-36/android.jar" --output out/sdk-dex out/ij2art-hook-api.jar
+echo "[*] tracer.dex (embedded generic observation replacement)"
+mkdir -p out/tracer-classes out/tracer-dex
+javac --release 8 -Xlint:-options \
+    -cp "out/ij2art-hook-api.jar:$SDK/platforms/android-36/android.jar" \
+    -d out/tracer-classes tracer/src/org/ij2art/tracer/*.java
+jar cf out/tracer.jar -C out/tracer-classes .
+"$BUILD_TOOLS/d8" --min-api 31 --lib "$SDK/platforms/android-36/android.jar" \
+    --classpath out/ij2art-hook-api.jar --output out/tracer-dex out/tracer.jar
+cp out/tracer-dex/classes.dex out/tracer.dex
 python3 - <<'PY'
 from pathlib import Path
 b = Path('out/sdk-dex/classes.dex').read_bytes()

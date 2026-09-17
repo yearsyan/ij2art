@@ -59,6 +59,7 @@ jobs:
           dist="ij2art-${GITHUB_REF_NAME}-android-arm64"
           mkdir -p "dist/$dist"
           cp out/ij2art out/ij2art-hook-api.jar out/THIRD_PARTY_NOTICES.txt "dist/$dist/"
+          cp tools/hookproj.py "dist/$dist/"
           cp out/ij2art dist/ij2art-android-arm64
           tar -czf "dist/$dist.tar.gz" -C dist "$dist"
           (cd dist && sha256sum "$dist.tar.gz" > "$dist.tar.gz.sha256")

@@ -42,6 +42,7 @@ take `--mode jit|no-jit|debuggable|aot` (four ART runtime shapes per feature).
 | `run-synchronized.py` | synchronized methods | same as constructors |
 | `run-native-binding.py` | JNI register/unregister guard | same as constructors |
 | `run-hook-update.py` | live callback replacement | same as constructors |
+| `run-tracer.py` | built-in observation tracer (`hook trace`, logcat records) | same as constructors |
 | `run-hook-replace.py` | strict-install admission (staticcopy-v1) | `build-art-api.sh` |
 | `run-aot-demo.py` | real-APK hooks on OAT quick code | `build-art-api.sh` + `build-apk.sh --aot`, then sign `out/aot-apktest-aligned.apk` as `out/aot-apktest-aligned-signed.apk` |
 | `run-java-calls.py` | JSON Java method calls (`--apk`, `--no-main` variants) | `./build.sh`, `build-art-api.sh`, `build-java-calls.sh` |

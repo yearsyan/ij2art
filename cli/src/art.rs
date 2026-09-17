@@ -23,6 +23,19 @@ pub const COVERAGE_ENTRY: u64 = 2;
 pub const DEX_MAX: usize = 8 * 1024 * 1024;
 pub const DEX_INFO_SIZE: usize = 48;
 
+/// Generic observation replacement embedded by build.sh (`tracer.dex`). It is never
+/// injected on its own: the bytes enter an app only through `dex upload --builtin tracer`
+/// or the `hook trace` convenience command. Host-test builds carry an empty stub.
+pub static TRACER_DEX: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/tracer.dex"));
+/// The tracer's replacement selector, already matching the published HookContext contract.
+pub const TRACER_REPLACEMENT: &str =
+    "org.ij2art.tracer.Tracer.trace(Lorg/ij2art/HookContext;)Ljava/lang/Object;";
+/// Logcat tag the tracer writes entry/exit records to.
+pub const TRACER_LOGCAT_TAG: &str = "ij2art.trace";
+/// Fixed upload nonce: every `--builtin tracer` upload is idempotent, because a repeated
+/// DEX_BEGIN with the same nonce and size returns the READY entry created earlier.
+pub const TRACER_NONCE: u64 = u64::from_le_bytes(*b"ij2trace");
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DexInfo {
     pub id: u64,
@@ -284,6 +297,14 @@ pub fn commit_dex(ring: &mut Ring, id: u64) -> Result<DexInfo, String> {
     Ok(value)
 }
 
+/// Idempotent upload of the embedded tracer DEX under its fixed nonce.
+fn upload_tracer(ring: &mut Ring) -> Result<DexInfo, String> {
+    if TRACER_DEX.is_empty() {
+        return Err("builtin tracer dex is not embedded in this build".into());
+    }
+    upload_dex(ring, TRACER_DEX, TRACER_NONCE)
+}
+
 /// Full replacement requires a previously loaded dex_id and TWO explicit selectors.
 pub fn install_hook(
     ring: &mut Ring,
@@ -441,6 +462,7 @@ pub enum Command {
         path: String,
         nonce: u64,
     },
+    UploadTracer,
     Commit(u64),
     Query {
         id: u64,
@@ -458,6 +480,9 @@ pub enum Command {
         hook_id: u64,
         dex_id: u64,
         replacement: String,
+    },
+    Trace {
+        target: String,
     },
     DropHook(u64),
     QueryHook(u64),
@@ -494,6 +519,10 @@ impl Command {
             }
         }
         match words.as_slice() {
+            ["dex", "upload", "--builtin", "tracer"] => Ok(Self::UploadTracer),
+            ["dex", "upload", "--builtin", other] => {
+                Err(format!("unknown builtin dex: {other} (only 'tracer')"))
+            }
             ["dex", "upload", path] => Ok(Self::Upload {
                 path: (*path).into(),
                 nonce: nonce()?,
@@ -529,6 +558,12 @@ impl Command {
                         "--replacement" if replacement.is_none() => {
                             replacement = Some(pair[1].to_string())
                         }
+                        "--builtin" if replacement.is_none() && pair[1] == "tracer" => {
+                            replacement = Some(TRACER_REPLACEMENT.to_string())
+                        }
+                        "--builtin" if replacement.is_none() => {
+                            return Err(format!("unknown builtin dex: {} (only 'tracer')", pair[1]))
+                        }
                         _ => return Err(format!("unknown/duplicate hook update option: {}", pair[0])),
                     }
                 }
@@ -560,6 +595,12 @@ impl Command {
                         "--replacement" if replacement.is_none() => {
                             replacement = Some(pair[1].to_string())
                         }
+                        "--builtin" if replacement.is_none() && pair[1] == "tracer" => {
+                            replacement = Some(TRACER_REPLACEMENT.to_string())
+                        }
+                        "--builtin" if replacement.is_none() => {
+                            return Err(format!("unknown builtin dex: {} (only 'tracer')", pair[1]))
+                        }
                         _ => return Err(format!("unknown/duplicate hook option: {}", pair[0])),
                     }
                 }
@@ -572,14 +613,33 @@ impl Command {
                     replacement,
                 })
             }
+            ["hook", "trace", "--target", target] => {
+                validate_method(target)?;
+                Ok(Self::Trace {
+                    target: (*target).into(),
+                })
+            }
             _ => Err(
-                "usage: dex upload/commit/query/list/del | hook init/add/update/query/list/del (see help)"
+                "usage: dex upload/commit/query/list/del | hook init/add/update/trace/query/list/del (see help)"
                     .into(),
             ),
         }
     }
     pub fn run(self, ring: &mut Ring) -> Result<Outcome, String> {
         match self {
+            Self::UploadTracer => {
+                let info = upload_tracer(ring)?;
+                Ok(Outcome::new(
+                    format!("{}\n", info.id),
+                    Json::Obj(vec![
+                        ("id".into(), Json::UInt(info.id)),
+                        ("nonce".into(), Json::UInt(info.nonce)),
+                        ("size".into(), Json::UInt(info.size)),
+                        ("state".into(), Json::text(info.state_name())),
+                        ("builtin".into(), Json::text("tracer")),
+                    ]),
+                ))
+            }
             Self::Upload { path, nonce } => {
                 let file = std::fs::File::open(&path).map_err(|e| format!("{path}: {e}"))?;
                 let mut bytes = Vec::new();
@@ -645,6 +705,33 @@ impl Command {
                     Json::Obj(vec![("id".into(), Json::UInt(id))]),
                 ))
             }
+            Self::Trace { target } => {
+                // hook init is idempotent, so trace can guarantee the adapter itself;
+                // surface an unsupported ART with its reason instead of a bare "not ready".
+                let init = request_args(ring, HOOK_INIT, &[], &[])?;
+                let caps = String::from_utf8_lossy(&init.data);
+                if caps.contains("\"replacement\":false") {
+                    return Err(format!(
+                        "ART replacement unsupported on this device: {}",
+                        unsupported_reason(&caps)
+                    ));
+                }
+                let dex = upload_tracer(ring)?;
+                let id = install_hook(ring, dex.id, &target, TRACER_REPLACEMENT)?;
+                Ok(Outcome::new(
+                    format!(
+                        "hook_id={} dex_id={}\n  target      {}\n  replacement {}\n  records: adb logcat -s {}:I\n",
+                        id, dex.id, target, TRACER_REPLACEMENT, TRACER_LOGCAT_TAG
+                    ),
+                    Json::Obj(vec![
+                        ("id".into(), Json::UInt(id)),
+                        ("dex_id".into(), Json::UInt(dex.id)),
+                        ("target".into(), Json::text(target.clone())),
+                        ("replacement".into(), Json::text(TRACER_REPLACEMENT)),
+                        ("logcat".into(), Json::text(TRACER_LOGCAT_TAG)),
+                    ]),
+                ))
+            }
             Self::DropHook(id) => {
                 let r = request(ring, HOOK_DEL, id, 0, &[])?;
                 let (info, _) = decode_hook(&r.data)?;
@@ -704,6 +791,34 @@ fn info_text(info: &DexInfo) -> String {
         info.hook_refs,
         info.error
     )
+}
+
+/// Pulls "unsupported_reason" out of the hook-init capability JSON (which the payload
+/// emits with only quote/backslash escaping); falls back to the trimmed payload.
+fn unsupported_reason(caps: &str) -> String {
+    const KEY: &str = "\"unsupported_reason\":\"";
+    if let Some(start) = caps.find(KEY) {
+        let rest = &caps[start + KEY.len()..];
+        let mut reason = String::new();
+        let mut escaped = false;
+        for ch in rest.chars() {
+            match (escaped, ch) {
+                (true, c) => {
+                    reason.push(c);
+                    escaped = false;
+                }
+                (false, '\\') => escaped = true,
+                (false, '"') => {
+                    if !reason.is_empty() {
+                        return reason;
+                    }
+                    break;
+                }
+                (false, c) => reason.push(c),
+            }
+        }
+    }
+    caps.trim().chars().take(300).collect()
 }
 
 #[cfg(test)]
@@ -805,5 +920,54 @@ mod tests {
         assert_eq!(rd32(&p, 4) as usize, b.len());
         assert_eq!(&p[8..8 + a.len()], a.as_bytes());
         assert_eq!(&p[8 + a.len()..], b.as_bytes());
+    }
+    #[test]
+    fn builtin_tracer_parse_paths() {
+        let parse =
+            |s: &str| Command::parse(&s.split_whitespace().map(str::to_string).collect::<Vec<_>>());
+        assert!(matches!(
+            parse("ij2art ctl --pid 1 dex upload --builtin tracer").unwrap(),
+            Command::UploadTracer
+        ));
+        assert!(parse("ij2art ctl --pid 1 dex upload --builtin other").is_err());
+        assert!(matches!(
+            parse("ij2art ctl --pid 1 hook add --dex-id 7 --target a.F.f(I)I --builtin tracer")
+                .unwrap(),
+            Command::Hook {
+                dex_id: 7,
+                ref replacement,
+                ..
+            } if replacement == TRACER_REPLACEMENT
+        ));
+        assert!(matches!(
+            parse("ij2art ctl --pid 1 hook update 9 --dex-id 7 --builtin tracer").unwrap(),
+            Command::UpdateHook {
+                hook_id: 9,
+                dex_id: 7,
+                ..
+            }
+        ));
+        assert!(matches!(
+            parse("ij2art ctl --pid 1 hook trace --target a.F.f(I)I").unwrap(),
+            Command::Trace { .. }
+        ));
+        // --builtin never combines with --replacement, an unknown name or a bad target.
+        assert!(parse("ij2art ctl --pid 1 hook update 9 --dex-id 7 --replacement a.R.f(Lorg/ij2art/HookContext;)Ljava/lang/Object; --builtin tracer").is_err());
+        assert!(parse("ij2art ctl --pid 1 hook update 9 --dex-id 7 --builtin other").is_err());
+        assert!(parse("ij2art ctl --pid 1 hook add --dex-id 7 --target a.F.f()V --builtin other").is_err());
+        assert!(parse("ij2art ctl --pid 1 hook trace --target no-descriptor").is_err());
+        // The published constants keep the documented contract.
+        assert!(validate_replacement(TRACER_REPLACEMENT).is_ok());
+        assert_ne!(TRACER_NONCE, 0);
+    }
+    #[test]
+    fn unsupported_reason_extraction() {
+        let caps = "{\"replacement\":false,\"unsupported_reason\":\"no \\\"locked-code\\\" backend\"}";
+        assert_eq!(
+            unsupported_reason(caps),
+            "no \"locked-code\" backend"
+        );
+        assert_eq!(unsupported_reason("{}"), "{}");
+        assert!(unsupported_reason(&"x".repeat(1000)).len() <= 300);
     }
 }

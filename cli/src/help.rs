@@ -95,13 +95,28 @@ native library upload (a source for inline replacements)
 ART method hook (Java method replacement; the app must register runtime readiness first)
   dex upload <file.dex> [--nonce N]               stdout: dex_id; upload to the app's private
                                                   InMemoryDexClassLoader
+  dex upload --builtin tracer                     upload the embedded generic observation dex
+                                                  (idempotent; nothing is injected beforehand)
   dex commit/query/list/del                       dex object management
   hook init                                       initialize the ART adapter (matched to libart)
   hook add --dex-id ID --target 'a.B.m(I)I'
            --replacement 'a.R.m(Lorg/ij2art/HookContext;)Ljava/lang/Object;'
+           (or '--builtin tracer' instead of --replacement, after dex upload --builtin tracer)
+  hook trace --target 'a.B.m(I)I'                 one-shot observation: init + builtin upload +
+                                                  add in a single command; the tracer logs
+                                                  args/result/exception/time/caller stack to
+                                                  logcat tag ij2art.trace
   hook update ID --dex-id ID --replacement '...'  change the replacement of an existing hook
+                                                  (also accepts '--builtin tracer')
   hook list / query ID / del ID                   del is a logical disable (physical restore is
                                                   unsupported)
+  tracer records                                  read them with: adb logcat -s ij2art.trace:I
+  custom replacement DEX (compiled on a host):    tools/hookproj.py ships in the release archive
+                                                  and the source repository; init scaffolds a
+                                                  project with the HookContext contract in
+                                                  comments, build runs javac/jar/d8 (JDK +
+                                                  Android SDK via --jdk/--sdk or auto-detect)
+                                                  and prints the dex upload / hook add commands
 
 Java method calls (JSON method calls only, no Java source; see ij2art help java)
   java call --thread main|new [--dex-id ID] (--request JSON | --file PATH)
@@ -136,6 +151,15 @@ const AGENT: &str = r#"ij2art -- output contract for scripts / LLM agents
 
 2. Reduce adb round trips: use ctl batch for multi-step work (see help ctl). One
    adb shell can run the whole upload -> verify -> hook -> verify-again sequence.
+   For plain observation of one Java method prefer `hook trace --target 'a.B.m(I)I'`:
+   it needs no DEX file at all (the generic tracer is embedded in the CLI) and
+   writes args/result/exception/time/caller stack to logcat tag ij2art.trace.
+   Compile a custom replacement only when observation is not enough: get
+   tools/hookproj.py from the release archive or the source repository, then on a
+   host with a JDK and the Android SDK run init + build. init scaffolds the project
+   (HookContext contract in comments); build resolves the toolchain via --jdk/--sdk
+   flags, JAVA_HOME/ANDROID_HOME, or common install locations, and emits the exact
+   dex upload / hook add commands to run on the device.
 
 3. Restore context with ctl overview: one connection returns the payload identity,
    the protocol version, and every inline/lib/dex/hook record, with no per-table queries.

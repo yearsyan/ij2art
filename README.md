@@ -76,13 +76,16 @@ absent. The Rust `aarch64-linux-android` target is required; the cross linker co
 `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER`, exported by `sdk.env.sh` — source
 `../sdk.env.sh` first when building inside `cli/` alone.
 
-Deploy only `out/ij2art`: it embeds the carrier, payload and eBPF program. The build
-also keeps `out/carrier.so`, `out/payload.so`, `out/monitor.bpf.o` and the Hook SDK JAR
+Deploy only `out/ij2art`: it embeds the carrier, payload, eBPF program and the generic
+observation-tracer DEX. The build also keeps `out/carrier.so`, `out/payload.so`,
+`out/monitor.bpf.o`, `out/tracer.dex` and the Hook SDK JAR
 for development and tests. Releases provide the standalone `ij2art-android-arm64`
-binary and an archive with the CLI, SDK JAR and third-party notices.
+binary and an archive with the CLI, SDK JAR, `tools/hookproj.py` and third-party notices.
 Use the GNU build-id to match a local artifact against a remote instance; never mix builds.
 Building the Hook SDK additionally requires a JDK; `out/ij2art-hook-api.jar` is used to
-compile replacement logic.
+compile replacement logic. `tools/hookproj.py` scaffolds a replacement project on a host
+(`init` writes a template with the HookContext contract in comments; `build` runs
+javac/jar/d8 with manually or automatically located JDK and Android SDK).
 
 ## Features and documentation
 
@@ -90,6 +93,11 @@ compile replacement logic.
   `<init>` constructors, synchronized methods, and already-bound native methods. Supports
   `callOriginal`, logical deletion, live callback replacement through `hook update`, and
   methods with OAT quick code. Coverage level: `ENTRY_ONLY`.
+- **Built-in method tracing**: `ctl hook trace --target 'a.B.m(I)I'` hooks a method for
+  pure observation with no DEX to compile or push — the generic tracer DEX is embedded in
+  the CLI and is uploaded only on demand (`dex upload --builtin tracer` / `--builtin
+  tracer` on `hook add`/`hook update` are the composable forms). It logs arguments, the
+  result or exception, wall time and the caller stack to logcat tag `ij2art.trace`.
 - **Native inline hooking**: `ctl inline` uses the embedded ShadowHook v2.0.1 and supports
   arm64 function entry replacement, original-function trampolines, query, and removal.
   `ctl lib load` can pass a `.so` into the target process through the control ring, then

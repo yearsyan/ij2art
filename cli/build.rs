@@ -10,6 +10,7 @@ fn main() {
     for (source, embedded) in [
         ("monitor.bpf.o", "monitor_bpf.o"),
         ("carrier.so", "carrier.so"),
+        ("tracer.dex", "tracer.dex"),
     ] {
         let src = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap())
             .join("../out")

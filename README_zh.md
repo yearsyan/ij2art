@@ -65,18 +65,26 @@ SIGSTOP 停止态——此时不能用 SIGCONT 或重新 inject「恢复」，�
 `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER` 提供，单独在 `cli/` 下构建时先
 `source ../sdk.env.sh`。
 
-部署时只需 `out/ij2art`，其中已内嵌 carrier、payload 和 eBPF 程序。构建仍保留
-`out/carrier.so`、`out/payload.so`、`out/monitor.bpf.o` 和 Hook SDK JAR，供开发和
-测试使用。Release 提供独立的 `ij2art-android-arm64` 文件，以及包含 CLI、SDK JAR
+部署时只需 `out/ij2art`，其中已内嵌 carrier、payload、eBPF 程序和通用观测 tracer
+DEX。构建仍保留 `out/carrier.so`、`out/payload.so`、`out/monitor.bpf.o`、
+`out/tracer.dex` 和 Hook SDK JAR，供开发和测试使用。Release 提供独立的
+`ij2art-android-arm64` 文件，以及包含 CLI、SDK JAR、`tools/hookproj.py`
 和第三方声明的压缩包。
 匹配本地产物与远端实例时使用 GNU build-id，不能混用不同构建。
 Hook SDK 构建还需要 JDK；`out/ij2art-hook-api.jar` 供替换逻辑编译使用。
+`tools/hookproj.py` 在主机侧脚手架替换项目（`init` 生成带 HookContext 契约注释的
+模板；`build` 用可手动指定或自动定位的 JDK 与 Android SDK 执行 javac/jar/d8）。
 
 ## 功能与文档
 
 - **ART 方法 Hook**：上传替换 DEX，Hook 普通方法、`<init>` 构造函数、synchronized
   和已绑定 native 方法的入口；支持 `callOriginal`、逻辑删除、运行中 `hook update`
   更换回调，以及带 OAT quick code 的方法。覆盖级别 `ENTRY_ONLY`。
+- **内置方法追踪**：`ctl hook trace --target 'a.B.m(I)I'` 以纯观测方式 Hook 方法，
+  无需编译或推送 DEX——通用 tracer DEX 内嵌在 CLI 中，仅在需要时上传
+  （`dex upload --builtin tracer`，或 `hook add`/`hook update` 的 `--builtin tracer`
+  为可组合形式）。它把参数、返回值或异常、耗时和调用方调用栈记录到 logcat 标签
+  `ij2art.trace`。
 - **Native inline hook**：`ctl inline` 使用内嵌的 ShadowHook v2.0.1，支持 arm64 函数
   入口替换、原函数跳板、查询和删除；`ctl lib load` 可经控制环把 `.so` 传入目标进程
   memfd 后 dlopen，不依赖磁盘路径。

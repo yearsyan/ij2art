@@ -119,6 +119,10 @@ chmod +x cli
 需另行列入。多 zygote ROM（如 OPPO/ColorOS 的 `zygote_ocomp`）上 CLI 按目标自动选择
 实例，依据打印到 stderr，`--pid` 显式覆盖；目标横跨多个 zygote 时报错，需分次注入。
 
+目标未运行时，多 zygote 自动选择依赖启发式规则，可能选错实例（一加 Android 16
+已复现）。先启动目标，再用 `--targets` 注入，或用 `--pid` 指定已确认的父进程。
+后续 `status`、`targets`、`clear` 也应使用同一个 PID。
+
 只影响注入后启动的进程。`clear` 不卸载已运行 App 中的 carrier/payload，重启对应 App
 后清除。CLI、carrier 和 payload 应使用同一套构建产物；替换产物前需结束注入会话并
 重启相关进程。

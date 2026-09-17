@@ -1,9 +1,10 @@
 # Test suites
 
 Four complementary layers. The lower two run on the build host; the upper two need a
-rooted Android device (regressions were validated on Android 14 / Android 16 /
-Android 17 arm64). The exact Android 17 build and results are recorded in
-[android17.md](../docs/android17.md).
+rooted Android device. The current ART matrix is validated on Android 14 / 16
+devices and an Android 15 AOSP ARM64 root emulator; exact builds and results are
+recorded in [ART compatibility](../docs/art-compatibility.md). The initial
+Android 17 validation is recorded in [android17.md](../docs/android17.md).
 
 | Layer | Entry | Device | Covers |
 | --- | --- | --- | --- |
@@ -57,9 +58,16 @@ the documented `inject` flow.
 
 Run APK suites sequentially: they share `org.ij2art.aottest`. `run-injection.py`
 uses the production injector with only that package selected and with self-loading
-disabled. It verifies unchanged zygote/system_server PIDs and SELinux mode after
+disabled. Unlock the device after reboot. A warm-up launch identifies the fixture's
+actual parent zygote before the two instrumented cold launches; multi-zygote ROMs
+can route ordinary APKs through the primary instance too. The test verifies
+unchanged zygote/system_server PIDs and SELinux mode after
 clear. An abnormal remote-call failure preserves matching artifacts for inspection
 and never automatically retries or resumes the affected process.
+
+The APK Java-call suite waits for WebView's debugging socket to settle. On `eng` /
+`userdebug` ROMs, Chromium keeps this socket enabled even after a successful disable
+call; the suite checks that platform policy instead of requiring it to disappear.
 
 ## Dynamic ART discovery
 
@@ -67,7 +75,9 @@ Production no longer consumes per-build symbol/RVA manifests. See
 [ART compatibility](../docs/art-compatibility.md) for version/protocol limits and
 [中文版](../docs/art-compatibility_zh.md). After pulling the device ELF, run the
 production discovery logic on the host, including unknown-ID, relocated-address,
-missing/ambiguous-symbol and malformed-input regressions:
+missing/ambiguous-symbol and malformed-input regressions, zombie-protocol rejection
+cases, plus GPR/FP and stack-spill provenance checks (eight groups). The result JSON
+includes the discovered layout; changing build ID or relocating code must preserve it:
 
 ```sh
 python3 test/run-art-discovery.py out/libart-device.so --api 37

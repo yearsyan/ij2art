@@ -139,6 +139,11 @@ must be listed separately. On multi-zygote ROMs (for example OPPO/ColorOS
 reasoning to stderr; `--pid` overrides this. If targets span several zygotes it reports an
 error and you must inject in separate passes.
 
+When the target is stopped, multi-zygote selection is a heuristic and can choose the
+wrong instance (observed on OnePlus Android 16). Start the target first and inject
+with `--targets`, or specify its verified parent with `--pid`. Keep that PID for
+subsequent `status`, `targets` and `clear` commands.
+
 Only processes started after injection are affected. `clear` does not unload the
 carrier/payload from already-running apps; restart the app to clear them. The CLI, carrier,
 and payload must come from the same build; before replacing artifacts, end the injection

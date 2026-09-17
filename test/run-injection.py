@@ -44,14 +44,19 @@ def main():
                 clean = True
             return value['data']
 
-        initial = cli('status', status=True)
+        lib.apk_install(device, compile_mode='speed')
+        fixture_installed = True
+        device.shell('rm -f ' + lib.FLAG)
+        # Multi-zygote ROMs can route this APK through either instance. Learn
+        # its actual parent from a warm-up launch before pinning the regression
+        # to that zygote; the two instrumented launches below remain cold starts.
+        warmup = cli('launch', lib.PACKAGE, '--wait', '20')
+        assert warmup['pid'], warmup
+        initial = cli('status', '--targets', lib.PACKAGE, status=True)
         assert not initial['injected'], 'an existing injection session must be cleared by its owner first'
         zygote = initial['pid']
         system_server = device.shell('pidof system_server').stdout.strip()
         enforcement = device.shell('getenforce').stdout.strip()
-        lib.apk_install(device, compile_mode='speed')
-        fixture_installed = True
-        device.shell('rm -f ' + lib.FLAG)
 
         # An abnormal remote call must never trigger an automatic clear/retry.
         cli('inject', '--targets', lib.PACKAGE)

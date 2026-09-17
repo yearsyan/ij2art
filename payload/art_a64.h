@@ -30,7 +30,14 @@ struct Facts {
         return false;
     }
 };
-using State = std::array<Value, 32>;
+struct State {
+    std::array<Value, 32> regs{};
+    // Track only bounded, full-width pointer spills in the current frame.
+    std::map<int64_t, Value> spills;
+    bool stack_exposed = false;
+    Value& operator[](size_t i) { return regs[i]; }
+    const Value& operator[](size_t i) const { return regs[i]; }
+};
 inline int64_t sign(uint64_t n, unsigned bits) { return int64_t(n << (64 - bits)) >> (64 - bits); }
 class Decoder {
     const art_elf::Image& elf;
@@ -41,9 +48,28 @@ class Decoder {
         unsigned d = w & 31, n = (w >> 5) & 31, m = (w >> 16) & 31;
         auto address = [&](Value v, int64_t off) { if (v.root != Unknown) v.offset += off; return v; };
         auto mem = [&](unsigned reg, Value base, int64_t off, unsigned width, bool store, bool simd) {
-            if (base.root == Unknown) { if (!store && !simd && reg != 31) r[reg] = {}; return; }
+            if (base.root == Unknown) {
+                if (store) r.spills.clear(); // An unknown store may alias a spill.
+                if (!store && !simd && reg != 31) r[reg] = {};
+                return;
+            }
             off += base.offset; base.offset = 0;
             if (facts) facts->accesses.push_back({base, off, width, store});
+            if (base.root == Stack) {
+                Value value;
+                auto found = r.spills.find(off);
+                if (!store && width == 8 && found != r.spills.end()) value = found->second;
+                if (store) {
+                    for (auto it = r.spills.begin(); it != r.spills.end();) {
+                        if (it->first < off + width && off < it->first + 8) it = r.spills.erase(it);
+                        else ++it;
+                    }
+                    if (!simd && width == 8 && reg != 31 && r[reg].root != Unknown &&
+                        off >= -4096 && off <= -8 && r[31].root == Stack && off >= r[31].offset)
+                        r.spills[off] = r[reg];
+                } else if (!simd && reg != 31) r[reg] = value;
+                return;
+            }
             if (store || simd || reg == 31) return;
             Value loaded;
             if (width == 8 && base.root == Constant) {
@@ -53,6 +79,17 @@ class Decoder {
                 loaded = base; loaded.path[loaded.depth++] = off;
             }
             r[reg] = loaded;
+        };
+        auto call = [&]() {
+            // Once a frame address is exposed outside SP/FP, callees may
+            // mutate it, including through aliases retained by earlier calls.
+            if (r.stack_exposed || r[31].root != Stack) r.spills.clear();
+            else for (auto it = r.spills.begin(); it != r.spills.end();) {
+                if (it->first < r[31].offset) it = r.spills.erase(it);
+                else ++it;
+            }
+            for (unsigned i = 0; i <= 18; ++i) r[i] = {};
+            r[30] = {};
         };
         if ((w & 0x9f000000) == 0x90000000 || (w & 0x9f000000) == 0x10000000) {
             int64_t imm = sign(((w >> 5) & 0x7ffff) << 2 | ((w >> 29) & 3), 21);
@@ -93,28 +130,49 @@ class Decoder {
             mem(d2, base, (mode == 1 ? 0 : imm) + width, width, store, simd);
             if (mode == 1 || mode == 3) r[n] = address(base, imm);
         } else if ((w & 0x7c000000) == 0x14000000) {
-            if (w >> 31) { for (unsigned i = 0; i <= 18; ++i) r[i] = {}; r[30] = {}; }
+            if (w >> 31) call();
             else { s.branch = int64_t(pc) + sign(w & 0x3ffffff, 26) * 4; s.done = true; }
         } else if ((w & 0xff000010) == 0x54000000 || (w & 0x7e000000) == 0x34000000) {
             s.branch = int64_t(pc) + sign((w >> 5) & 0x7ffff, 19) * 4; s.conditional = true;
         } else if ((w & 0x7e000000) == 0x36000000) {
             s.branch = int64_t(pc) + sign((w >> 5) & 0x3fff, 14) * 4; s.conditional = true;
         } else if ((w & 0xfffffc1f) == 0xd63f0000) { // BLR
-            for (unsigned i = 0; i <= 18; ++i) r[i] = {}; r[30] = {};
+            call();
         } else if ((w & 0xfffffc1f) == 0xd65f0000 || (w & 0xfffffc1f) == 0xd61f0000 || !w) {
             s.done = true;
-        } else if ((w & 0xfffff01f) == 0xd503201f || (w & 0x1e000000) == 0x0e000000) {
+        } else if ((w & 0xfffff01f) == 0xd503201f || (w & 0x1e000000) == 0x0e000000 ||
+                   (w & 0xfffffc00) == 0x1e270000 || (w & 0xfffffc00) == 0x9e670000 ||
+                   (w & 0xfffffc00) == 0x9eaf0000) {
             // HINT/PAC/BTI and SIMD arithmetic do not change object GPRs.
-        } else if (d != 31) {
+            // Nor does FMOV from a GPR to S/D/V.d[1]; the reverse does.
+        } else {
             // Most remaining data-processing instructions write Rd. Erasing
             // it also handles loads/atomics not recognized above conservatively.
-            r[d] = {};
+            if (d != 31) r[d] = {};
+            if ((w & 0x0a000000) == 0x08000000) r.spills.clear();
         }
+        for (unsigned i = 0; i < 31; ++i) if (i != 29 && r[i].root == Stack) r.stack_exposed = true;
         return s;
     }
     void analyze(uint64_t entry, const State& initial, Facts& facts, unsigned depth) const {
+        if (!depth) return;
         auto symbol = elf.function(entry);
-        if (!symbol || symbol->size > 65536 || symbol->size % 4 || !depth) return;
+        if (!symbol) {
+            // A constructor may delegate through its own ELF's PLT. Follow
+            // only the canonical AArch64 stub and a resolved in-image target;
+            // arbitrary indirect branches remain opaque.
+            auto bytes = elf.bytes(entry, 16, true); if (!bytes) return;
+            uint32_t words[4]; memcpy(words, bytes, sizeof(words));
+            if ((words[0] & 0x9f00001f) != 0x90000010 ||
+                (words[1] & 0xffc003ff) != 0xf9400211 ||
+                (words[2] & 0xffc003ff) != 0x91000210 || words[3] != 0xd61f0220) return;
+            State forwarded = initial;
+            for (size_t i = 0; i < 3; ++i) forwarded = step(entry + i * 4, words[i], forwarded, nullptr).regs;
+            if (forwarded[17].root == Constant && forwarded[17].offset > 0)
+                analyze(uint64_t(forwarded[17].offset), forwarded, facts, depth - 1);
+            return;
+        }
+        if (symbol->size > 65536 || symbol->size % 4) return;
         const uint8_t* code = elf.bytes(entry, symbol->size, true); if (!code) return;
         size_t count = symbol->size / 4;
         std::vector<State> states(count); std::vector<bool> seen(count);
@@ -127,6 +185,15 @@ class Decoder {
                 if (!(states[index][reg] == state[reg]) && states[index][reg].root != Unknown) {
                     states[index][reg] = {}; changed = true;
                 }
+            }
+            for (auto it = states[index].spills.begin(); it != states[index].spills.end();) {
+                auto incoming = state.spills.find(it->first);
+                if (incoming == state.spills.end() || !(it->second == incoming->second)) {
+                    it = states[index].spills.erase(it); changed = true;
+                } else ++it;
+            }
+            if (state.stack_exposed && !states[index].stack_exposed) {
+                states[index].stack_exposed = true; changed = true;
             }
             if (changed) queue.push_back(index);
         };

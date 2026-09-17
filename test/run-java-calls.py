@@ -185,11 +185,31 @@ def main():
 
         if opts.apk:
             # Public real WebView API in an ordinary App UID, with a visible debugging endpoint.
+            def wait_debugging_socket(enabled):
+                # WebView may post devtools socket work to its IO thread. The
+                # Java call completing does not mean that work has finished.
+                started = time.monotonic()
+                while True:
+                    present = ('webview_devtools_remote_' + pid) in device.shell('cat /proc/net/unix').stdout
+                    if present == enabled:
+                        print('WebView socket %s after %.3fs' %
+                              ('enabled' if enabled else 'disabled', time.monotonic() - started), flush=True)
+                        return
+                    assert time.monotonic() - started < 5, 'WebView devtools socket did not reach enabled=' + str(enabled)
+                    time.sleep(0.05)
+
             run([call('setWebContentsDebuggingEnabled', arg('boolean', True), owner='android.webkit.WebView')], thread='main')
-            assert ('webview_devtools_remote_' + pid) in device.shell('cat /proc/net/unix').stdout
+            wait_debugging_socket(True)
             run([call('setWebContentsDebuggingEnabled', arg('boolean', False), owner='android.webkit.WebView')], thread='main')
-            assert ('webview_devtools_remote_' + pid) not in device.shell('cat /proc/net/unix').stdout
-            print('PASS: real App WebView debugging enabled/disabled; devtools socket verified', flush=True)
+            # Chromium SharedStatics keeps devtools enabled on debug Android
+            # builds (BuildInfo.isDebugAndroidOrApp). This fixture APK itself
+            # is deliberately non-debuggable, so only the ROM policy applies.
+            debug_rom = device.shell('getprop ro.build.type').stdout.strip() in ('eng', 'userdebug')
+            wait_debugging_socket(debug_rom)
+            if debug_rom:
+                print('PASS: real App WebView calls; debug ROM retains devtools after disable as required by platform policy', flush=True)
+            else:
+                print('PASS: real App WebView debugging enabled/disabled; devtools socket verified', flush=True)
 
         queued_dex = ctl('dex', 'upload', device.remote + '/helper.dex')['id']
         release = device.remote + '/release'

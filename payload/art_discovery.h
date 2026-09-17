@@ -65,13 +65,22 @@ struct Discovery {
         auto has = [&](Symbol s) { return sites[static_cast<size_t>(s)].rva != 0; };
         for (const auto& c : candidates) if (!has(c.symbol) && !optional(c.symbol))
             return fail(std::string("missing ART symbol: ") + c.name);
-        bool zombie = has(Symbol::jit_mutator_lock);
-        if (zombie && (!has(Symbol::erase_pointer_set) || !has(Symbol::update) || !has(Symbol::reinitialize)))
-            return fail("zombie-code protocol requires erase, UpdateEntryPoints and ReinitializeMethodsCode");
-        if (!zombie && (has(Symbol::update) || !has(Symbol::initialize)))
+        bool split_jit_lock = has(Symbol::jit_mutator_lock);
+        bool zombie_ambiguous = false;
+        auto zombie_add = elf.resolve("_ZN3art3jit12JitCodeCache21AddZombieCodeInternalEPNS_9ArtMethodEPKv", &zombie_ambiguous);
+        if (zombie_ambiguous) return fail("ambiguous ART zombie-code protocol probe");
+        // Android 15 already has zombie/processed-zombie sets, but protects
+        // them with jit_lock_ alone and still embeds Instrumentation in Runtime.
+        bool zombie = split_jit_lock || zombie_add;
+        if (zombie && !has(Symbol::erase_pointer_set))
+            return fail("zombie-code protocol requires pointer-set erase");
+        if (split_jit_lock && (!has(Symbol::update) || !has(Symbol::reinitialize)))
+            return fail("split-lock zombie-code protocol requires UpdateEntryPoints and ReinitializeMethodsCode");
+        if (!split_jit_lock && (has(Symbol::update) || !has(Symbol::initialize)))
             return fail("locked-code protocol requires InitializeMethodsCode without zombie entry writer");
         profile.family = zombie ? Family::ZombieCode : Family::LockedCode;
-        profile.name = zombie ? "arm64-zombie-code-dynamic" : "arm64-locked-code-dynamic";
+        profile.name = zombie ? (split_jit_lock ? "arm64-zombie-code-dynamic" :
+            "arm64-zombie-code-jit-lock-dynamic") : "arm64-locked-code-dynamic";
         identity = elf.id;
         profile.build_id = identity.c_str(); profile.sites = sites.data();
         profile.compilation_kinds[0] = 0;
@@ -104,8 +113,24 @@ struct Discovery {
         auto& l = profile.layout;
         auto suspend = site_probe(Symbol::suspend), copy = site_probe(Symbol::copy);
         l.runtime_threads = unique(suspend, art_a64::Runtime, 8, false);
-        l.runtime_jit = unique(copy, art_a64::Runtime, 8, false);
-        l.runtime_linker = unique(probe("_ZN3art9ArtMethod23GetOatQuickMethodHeaderEm"), art_a64::Runtime, 8, false);
+        // CopyFrom also reads Runtime's JitOptions on Android 14/16. Identify
+        // Jit by its code-cache/options ownership, not by counting all Runtime
+        // loads in a function whose inlining varies between ART builds.
+        std::set<size_t> jit_offsets;
+        for (const auto& a : copy.accesses) if (a.base.root == art_a64::Runtime && !a.base.depth &&
+            !a.store && a.width == 8 && a.offset > 0 && a.offset < 16384 &&
+            copy.field(art_a64::Runtime, {a.offset}, 8, 8) &&
+            copy.field(art_a64::Runtime, {a.offset}, 16, 8)) jit_offsets.insert(size_t(a.offset));
+        l.runtime_jit = jit_offsets.size() == 1 ? *jit_offsets.begin() : 0;
+        // IsImagePointerSize directly reads Runtime::class_linker_. The much
+        // larger GetOatQuickMethodHeader may read Jit too, or outline the linker
+        // access completely. Keep that older probe only for builds without the
+        // dedicated helper, and still require an unambiguous field.
+        bool image_size_ambiguous = false;
+        auto image_size = elf.resolve("_ZN3art9ArtMethod18IsImagePointerSizeENS_11PointerSizeE", &image_size_ambiguous);
+        if (image_size_ambiguous) return fail("ambiguous ART ClassLinker field probe");
+        l.runtime_linker = unique(image_size ? decoder.inspect(image_size->rva) :
+            probe("_ZN3art9ArtMethod23GetOatQuickMethodHeaderEm"), art_a64::Runtime, 8, false);
         l.runtime_debuggable = unique(probe("_ZN3art7Runtime20SetRuntimeDebugStateENS0_17RuntimeDebugStateE"), 0, 4, true);
         l.runtime_callbacks = unique(probe("_ZN3art7Runtime19GetRuntimeCallbacksEv"), 0, 8, false);
         if (!l.runtime_threads || !l.runtime_jit || !l.runtime_linker || !l.runtime_debuggable || !l.runtime_callbacks)
@@ -121,11 +146,12 @@ struct Discovery {
         // Private STL ownership and lock ordering remain explicit ABI rules.
         // These are layout families, not build IDs or function RVAs. Every
         // selected rule must have evidence in the current ELF before use.
-        struct Rule { bool zombie; size_t instr, cha, status, saved, zygote, collecting, dead, processed; };
+        struct Rule { bool zombie, instr_pointer; size_t instr, cha, status, saved, zygote, collecting, dead, processed; };
         constexpr Rule rules[] = {
-            {true, 0x328,0x248,0x68,0x328,0x3b8,0x410,0x370,0x428},
-            {true, 0x330,0x270,0x68,0x340,0x3b8,0x3f0,0x370,0x408},
-            {false,0x328,0x208,0x70,0x328,0x370,0x3a8,0,0},
+            {true, true, 0x328,0x248,0x68,0x328,0x3b8,0x410,0x370,0x428},
+            {true, true, 0x330,0x270,0x68,0x340,0x3b8,0x3f0,0x370,0x408},
+            {true, false,0x328,0x260,0x70,0x328,0x3d0,0x408,0x370,0x3a0},
+            {false,false,0x328,0x208,0x70,0x328,0x370,0x3a8,0,0},
         };
         auto deopt = probe("_ZN3art7Runtime19DeoptimizeBootImageEv");
         auto linker = probe("_ZN3art11ClassLinkerC2EPNS_11InternTableEb");
@@ -133,21 +159,30 @@ struct Discovery {
         auto status = probe("_ZN3art6mirror5Class15SetStatusLockedENS_11ClassStatusE");
         if (status.addresses.empty()) status = probe("_ZN3art6mirror5Class17SetStatusInternalENS_11ClassStatusE");
         auto saved = probe("_ZN3art3jit12JitCodeCache37GetSavedEntryPointOfPreCompiledMethodEPNS_9ArtMethodE");
+        auto zygote_map = site_probe(Symbol::zygote_code);
         auto collection = site_probe(Symbol::collect_cache), remove = site_probe(Symbol::remove_method_locked);
+        auto add_zombie = zombie_add ? decoder.inspect(zombie_add->rva) : art_a64::Facts{};
         const Rule* selected = nullptr;
         for (const auto& rule : rules) {
             if (rule.zombie != zombie || !written(linker, rule.cha, 8) ||
-                !linker_dtor.field(0, {}, rule.cha, 8) || !status.address(0, rule.status) ||
-                !saved.field(0, {}, rule.saved + 8, 8) || !saved.address(0, rule.zygote) ||
+                !(linker_dtor.field(0, {}, rule.cha, 8) || linker_dtor.address(0, rule.cha)) ||
+                !status.address(0, rule.status) ||
+                !saved.field(0, {}, rule.saved + 8, 8) ||
                 !collection.field(0, {}, rule.collecting, 1) || !collection.field(0, {}, rule.collecting, 1, true)) continue;
-            if (zombie ? !deopt.field(0, {}, rule.instr, 8) : !deopt.address(0, rule.instr)) continue;
+            // GetCodeFor can be inlined: then the caller reads both ArrayRef
+            // words instead of forming the ZygoteMap receiver address.
+            if (!saved.address(0, rule.zygote) &&
+                !(saved.field(0, {}, rule.zygote, 8) && saved.field(0, {}, rule.zygote + 8, 8) &&
+                  zygote_map.field(0, {}, 0, 8) && zygote_map.field(0, {}, 8, 8))) continue;
+            if (rule.instr_pointer ? !deopt.field(0, {}, rule.instr, 8) : !deopt.address(0, rule.instr)) continue;
             if (zombie && (!collection.field(0, {}, rule.dead, 8) ||
-                !remove.address(0, rule.dead) || !collection.address(0, rule.processed))) continue;
+                !(remove.address(0, rule.dead) || add_zombie.address(0, rule.dead)) ||
+                !collection.address(0, rule.processed))) continue;
             if (selected) return fail("ambiguous ART private-container ABI rules");
             selected = &rule;
         }
         if (!selected) return fail("ART instrumentation/CHA/JIT-cache layout does not match a verified ABI rule");
-        l.runtime_instrumentation = selected->instr; l.instrumentation_pointer = zombie;
+        l.runtime_instrumentation = selected->instr; l.instrumentation_pointer = selected->instr_pointer;
         l.linker_cha = selected->cha; l.class_status = selected->status;
         l.cache_saved = selected->saved; l.cache_zygote = selected->zygote;
         l.cache_collecting = selected->collecting; l.cache_zombies = selected->dead; l.cache_osr_zombies = selected->processed;
@@ -157,10 +192,20 @@ struct Discovery {
         l.pool_waiting = unique(site_probe(Symbol::add_generic_task), 0, 8, false);
         l.pool_threads = l.pool_waiting + 8;
         auto pool = probe("_ZN3art10ThreadPoolD2Ev");
+        auto pool_delete = probe("_ZN3art18AbstractThreadPool13DeleteThreadsEv");
+        auto pool_ctor = probe("_ZN3art18AbstractThreadPoolC2EPKcmbm");
+        // Older ART outlines thread deletion, and unsized operator delete does
+        // not need to load vector capacity. Require the same fields in the
+        // explicit cleanup/constructor when absent from the destructor.
+        auto pool_read = [&](size_t off) {
+            return pool.field(0, {}, off, 8) || pool_delete.field(0, {}, off, 8);
+        };
         if (!l.pool_started || !l.pool_waiting || !pool.address(0, 0x20) ||
-            !pool.field(0, {}, l.pool_started + 1, 1, true) ||
-            !pool.field(0, {}, l.pool_threads, 8) || !pool.field(0, {}, l.pool_threads + 8, 8) ||
-            !pool.field(0, {}, l.pool_threads + 16, 8)) return fail("ART compiler thread-pool ABI probe failed");
+            !(pool.field(0, {}, l.pool_started + 1, 1, true) ||
+              pool_delete.field(0, {}, l.pool_started + 1, 1, true)) ||
+            !pool_read(l.pool_threads) || !pool_read(l.pool_threads + 8) ||
+            !(pool.field(0, {}, l.pool_threads + 16, 8) || written(pool_ctor, l.pool_threads + 16, 8)))
+            return fail("ART compiler thread-pool ABI probe failed");
         l.visitor_size = extent(site_probe(Symbol::visitor_init));
         l.gc_section_size = extent(site_probe(Symbol::gc_enter));
         if (l.visitor_size < 0x100 || l.visitor_size > 0x400 || l.gc_section_size != 24)

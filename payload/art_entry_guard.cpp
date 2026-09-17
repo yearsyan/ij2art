@@ -68,8 +68,8 @@ using Write = void (*)(void*, const void*);
 using WriteMember = void (*)(void*, void*, const void*);
 using Reset = void (*)(void*, void*);
 void write_pinned(void* instrumentation, void* method, const void* code) {
-    // Android 16 must retain ART's CAS/zombie bookkeeping. Android 14 uses
-    // UpdateMethodsCode's ordinary pointer store and has no outlined helper.
+    // Retain ART's own entry-write bookkeeping: newer builds expose a separate
+    // helper; Android 14/15 keep it inside UpdateMethodsCode.
     if (originals[Update]) original<Write>(Update)(method, code);
     else original<WriteMember>(UpdateImpl)(instrumentation, method, code);
 }

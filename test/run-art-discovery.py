@@ -89,7 +89,7 @@ def main():
             return json.loads(result.stdout)
 
         baseline = check(source)
-        print('PASS: current ELF; duplicate aliases accepted, ambiguous LTO clones/missing symbols/unknown API rejected')
+        print('PASS: current ELF; aliases accepted; ambiguous clones, missing protocol operations and unknown API rejected')
         changed_id = bytearray(source)
         original = bytes.fromhex(elf.build_id())
         replacement = bytes(x ^ 0xa5 for x in original)
@@ -97,11 +97,13 @@ def main():
         changed_id = changed_id.replace(original, replacement)
         other = check(changed_id)
         assert other['id'] == replacement.hex() and other['sites'] == baseline['sites']
+        assert other['layout'] == baseline['layout']
         print('PASS: unregistered build ID accepted with unchanged verified ABI')
         shift = 0x4000
         other = check(relocate(changed_id, shift))
         assert other['sites'] == [x + shift if x else 0 for x in baseline['sites']]
         assert other['patterns'] == [x + shift for x in baseline['patterns']]
+        assert other['layout'] == baseline['layout']
         print('PASS: every symbol/pattern relocated by 16 KiB; no compiled-in RVAs')
         setter = elf.symbols()['_ZN3art7Runtime20SetRuntimeDebugStateENS0_17RuntimeDebugStateE']
         damaged = bytearray(source)
@@ -134,7 +136,27 @@ def main():
         assert decode([0xca000000, 0xf9402001, 0xd65f03c0]) == []  # EOR x0,x0,x0 erases the object origin
         assert decode([0xb4000061, 0xaa0003e2, 0x14000002, 0xaa0103e2, 0xf9402043, 0xd65f03c0]) == []
         print('PASS: signed loads, register renaming, unknown writes and conflicting control-flow origins')
-    (out / 'discovery-results.json').write_text(json.dumps({'passed_groups': 6, 'baseline': baseline}, indent=2) + '\n')
+        # Android 14 initializes StackVisitor with FMOV D0,XZR. D0 and X0
+        # are distinct registers; the reverse FMOV really does overwrite X0.
+        for fmov in [0x9e6703e0, 0x1e2703e0, 0x9eaf03e0]:
+            assert decode([fmov, 0xf9402001, 0xd65f03c0]) == [[0, 64, 8, 0]]
+        assert decode([0x9e660020, 0xf9402001, 0xd65f03c0]) == []
+        print('PASS: GPR-to-FP moves preserve object origins; FP-to-GPR moves invalidate them')
+        # OnePlus spills the JitCodeCache receiver across lock calls. Keep
+        # full-width local spills only while all paths agree and no callee can
+        # access the frame. Overlapping stores and unknown addressing erase it.
+        frame = [0xd10083ff]  # SUB SP,SP,#32
+        spill, reload = [0xf90007e0], [0xf94007e2, 0xf9402043, 0xd65f03c0]
+        assert decode(frame + spill + [0x94000000] + reload) == [[0, 64, 8, 0]]
+        assert decode(frame + spill + [0xb9000fe1] + reload) == []  # STR W1,[SP,#12]
+        assert decode(frame + spill + [0x3d8003e1] + reload) == []  # STR Q1,[SP]
+        assert decode(frame + spill + [0xf8226be1] + reload) == []  # STR X1,[SP,X2]
+        assert decode(frame + spill + [0x910023e0, 0x94000000] + reload) == []  # escaped frame
+        assert decode(frame + [0xb4000061, 0xf90007e0, 0x14000002, 0xf90007e1] + reload) == []
+        assert decode(frame + [0xa90107e0, 0xa9410fe2, 0xf9402044, 0xf9402465, 0xd65f03c0]) == [
+            [0, 64, 8, 0], [1, 72, 8, 0]]  # STP/LDP pointer spills
+        print('PASS: stack spills/pairs survive calls; overlapping stores, escaped frames and conflicting spills rejected')
+    (out / 'discovery-results.json').write_text(json.dumps({'passed_groups': 8, 'baseline': baseline}, indent=2) + '\n')
 
 
 if __name__ == '__main__':

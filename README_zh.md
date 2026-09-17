@@ -97,18 +97,21 @@ Hook SDK 构建还需要 JDK；`out/ij2art-hook-api.jar` 供替换逻辑编译�
 ## 使用
 
 ```sh
-adb push out/ij2art out/carrier.so /data/local/tmp/ij2art/
+# 部署目录与文件名可任意命名（含随机名）：CLI 运行时不读取自身文件名，
+# carrier 由 --carrier 显式指定。
+adb push out/ij2art /data/local/tmp/deploy/cli
+adb push out/carrier.so /data/local/tmp/deploy/
 adb shell
 su
-cd /data/local/tmp/ij2art
-chmod +x ij2art
+cd /data/local/tmp/deploy
+chmod +x cli
 
-./ij2art inject --carrier ./carrier.so --targets com.example.target
-./ij2art status
-./ij2art launch com.example.target
-./ij2art targets --targets com.a,com.b
-./ij2art targets --none
-./ij2art clear
+./cli inject --carrier ./carrier.so --targets com.example.target
+./cli status
+./cli launch com.example.target
+./cli targets --targets com.a,com.b
+./cli targets --none
+./cli clear
 ```
 
 也可用 `--all`（默认）匹配 `uid % 100000` 在 `[10000,20000)` 的进程；这不是 SELinux
@@ -133,12 +136,12 @@ payload 建立 64 KiB memfd，共享命令/响应槽并使用共享 futex 唤醒
 - CLI 默认 5 秒超时；WRITE 单次最多 3992 字节，READ 响应最多 16344 字节。
 
 ```sh
-./ij2art ctl --pid P ping
-./ij2art ctl --pid P mods
-./ij2art ctl --pid P read 0xADDRESS 32
-./ij2art ctl --pid P write 0xADDRESS deadbeef
-./ij2art ctl --pid P call --in /libc.so getpid
-./ij2art ctl --pid P shutdown
+./cli ctl --pid P ping
+./cli ctl --pid P mods
+./cli ctl --pid P read 0xADDRESS 32
+./cli ctl --pid P write 0xADDRESS deadbeef
+./cli ctl --pid P call --in /libc.so getpid
+./cli ctl --pid P shutdown
 ```
 
 SHUTDOWN 响应表示请求已确认，worker 随后关闭 fd、解除共享映射并退出；payload 库保持

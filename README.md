@@ -114,18 +114,21 @@ updated together:
 ## Usage
 
 ```sh
-adb push out/ij2art out/carrier.so /data/local/tmp/ij2art/
+# The deploy directory and file names are arbitrary (random names included): the CLI
+# never reads its own file name, and the carrier is passed explicitly via --carrier.
+adb push out/ij2art /data/local/tmp/deploy/cli
+adb push out/carrier.so /data/local/tmp/deploy/
 adb shell
 su
-cd /data/local/tmp/ij2art
-chmod +x ij2art
+cd /data/local/tmp/deploy
+chmod +x cli
 
-./ij2art inject --carrier ./carrier.so --targets com.example.target
-./ij2art status
-./ij2art launch com.example.target
-./ij2art targets --targets com.a,com.b
-./ij2art targets --none
-./ij2art clear
+./cli inject --carrier ./carrier.so --targets com.example.target
+./cli status
+./cli launch com.example.target
+./cli targets --targets com.a,com.b
+./cli targets --none
+./cli clear
 ```
 
 `--all` (the default) matches processes whose `uid % 100000` falls in `[10000,20000)`; this
@@ -160,12 +163,12 @@ the header `version` field is used only to strictly validate the current layout.
   and a READ response at most 16344 bytes.
 
 ```sh
-./ij2art ctl --pid P ping
-./ij2art ctl --pid P mods
-./ij2art ctl --pid P read 0xADDRESS 32
-./ij2art ctl --pid P write 0xADDRESS deadbeef
-./ij2art ctl --pid P call --in /libc.so getpid
-./ij2art ctl --pid P shutdown
+./cli ctl --pid P ping
+./cli ctl --pid P mods
+./cli ctl --pid P read 0xADDRESS 32
+./cli ctl --pid P write 0xADDRESS deadbeef
+./cli ctl --pid P call --in /libc.so getpid
+./cli ctl --pid P shutdown
 ```
 
 A SHUTDOWN response means the request was acknowledged; the worker then closes the fd,

@@ -85,7 +85,9 @@ Use the GNU build-id to match a local artifact against a remote instance; never 
 Building the Hook SDK additionally requires a JDK; `out/ij2art-hook-api.jar` is used to
 compile replacement logic. `tools/hookproj.py` scaffolds a replacement project on a host
 (`init` writes a template with the HookContext contract in comments; `build` runs
-javac/jar/d8 with manually or automatically located JDK and Android SDK).
+javac/jar/d8 with manually or automatically located JDK and Android SDK). The script is
+self-contained — build.sh embeds a copy of the hook API JAR in it — so it also works
+standalone, and still prefers a fresher JAR via `--hook-api`, `out/` or its own directory.
 
 ## Features and documentation
 

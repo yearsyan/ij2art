@@ -112,7 +112,8 @@ ART method hook (Java method replacement; the app must register runtime readines
                                                   unsupported)
   tracer records                                  read them with: adb logcat -s ij2art.trace:I
   custom replacement DEX (compiled on a host):    tools/hookproj.py ships in the release archive
-                                                  and the source repository; init scaffolds a
+                                                  and the source repository, self-contained
+                                                  (the hook API JAR is embedded); init scaffolds a
                                                   project with the HookContext contract in
                                                   comments, build runs javac/jar/d8 (JDK +
                                                   Android SDK via --jdk/--sdk or auto-detect)

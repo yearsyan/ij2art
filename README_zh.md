@@ -74,6 +74,8 @@ DEX。构建仍保留 `out/carrier.so`、`out/payload.so`、`out/monitor.bpf.o`�
 Hook SDK 构建还需要 JDK；`out/ij2art-hook-api.jar` 供替换逻辑编译使用。
 `tools/hookproj.py` 在主机侧脚手架替换项目（`init` 生成带 HookContext 契约注释的
 模板；`build` 用可手动指定或自动定位的 JDK 与 Android SDK 执行 javac/jar/d8）。
+脚本是自包含的——build.sh 会把 hook API JAR 内嵌其中——因此单独下载也能工作；
+同时仍优先使用更新鲜的 JAR（`--hook-api`、`out/` 或脚本同目录）。
 
 ## 功能与文档
 

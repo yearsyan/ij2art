@@ -3,6 +3,8 @@
 #include <string.h>
 #include <thread>
 #include <vector>
+#include <unistd.h>
+#include <sys/syscall.h>
 
 #define EXPORT extern "C" __attribute__((visibility("default"), noinline))
 extern "C" {
@@ -22,6 +24,14 @@ uint64_t reloc_literal(uint64_t);
 uint64_t reloc_branch(uint64_t);
 uint64_t reloc_cbz(uint64_t);
 uint64_t reloc_pac(uint64_t);
+uint64_t probe_target(uint64_t, uint64_t);
+}
+EXPORT uint64_t probe_target_address() { return reinterpret_cast<uint64_t>(&probe_target); }
+EXPORT uint64_t fixture_tid() { return syscall(SYS_gettid); }
+EXPORT uint64_t probe_loop(uint64_t n) {
+    uint64_t sum = 0;
+    for (uint64_t i = 0; i < n; ++i) sum += probe_target(9, 4);
+    return sum;
 }
 template<class F> F original(void** slot) {
     return reinterpret_cast<F>(__atomic_load_n(slot, __ATOMIC_ACQUIRE));

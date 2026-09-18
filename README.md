@@ -104,6 +104,10 @@ standalone, and still prefers a fresher JAR via `--hook-api`, `out/` or its own 
   arm64 function entry replacement, original-function trampolines, query, and removal.
   `ctl lib load` can pass a `.so` into the target process through the control ring, then
   dlopen it from a memfd, so no disk path is required.
+- **Instruction observation points**: `ctl probe` records GPRs, PC/SP/NZCV before a
+  selected arm64 instruction, with module offsets, thread/register filters, hit
+  limits and cursor reads with loss counters. See
+  [instruction-probes.md](docs/instruction-probes.md).
 - **JSON Java method calls**: `ctl java call` executes method calls described in JSON on the
   app main thread or on a new thread (for example, to enable WebView debugging). It is
   asynchronous and needs no ART hook. See [java-calls.md](docs/java-calls.md).
@@ -121,6 +125,7 @@ updated together:
 |---|---|
 | [README.md](README.md) | [README_zh.md](README_zh.md) |
 | [docs/ebpf-monitor.md](docs/ebpf-monitor.md) | [docs/ebpf-monitor_zh.md](docs/ebpf-monitor_zh.md) |
+| [docs/instruction-probes.md](docs/instruction-probes.md) | [docs/instruction-probes_zh.md](docs/instruction-probes_zh.md) |
 | [docs/java-calls.md](docs/java-calls.md) | [docs/java-calls_zh.md](docs/java-calls_zh.md) |
 | [docs/android17.md](docs/android17.md) | [docs/android17_zh.md](docs/android17_zh.md) |
 

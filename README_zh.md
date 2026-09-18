@@ -90,6 +90,9 @@ Hook SDK 构建还需要 JDK；`out/ij2art-hook-api.jar` 供替换逻辑编译�
 - **Native inline hook**：`ctl inline` 使用内嵌的 ShadowHook v2.0.1，支持 arm64 函数
   入口替换、原函数跳板、查询和删除；`ctl lib load` 可经控制环把 `.so` 传入目标进程
   memfd 后 dlopen，不依赖磁盘路径。
+- **指令观察点**：`ctl probe` 记录指定 arm64 指令执行前的通用寄存器、PC/SP/NZCV，
+  支持模块偏移、线程/寄存器过滤、命中上限和带丢失计数的游标读取。见
+  [instruction-probes_zh.md](docs/instruction-probes_zh.md)。
 - **JSON Java 方法调用**：`ctl java call` 在 App 主线程或新线程执行 JSON 描述的
   方法调用（如开启 WebView 调试），异步任务，无需 ART Hook。见
   [java-calls.md](docs/java-calls.md)。
@@ -104,6 +107,7 @@ Hook SDK 构建还需要 JDK；`out/ij2art-hook-api.jar` 供替换逻辑编译�
 |---|---|
 | [README.md](README.md) | [README_zh.md](README_zh.md) |
 | [docs/ebpf-monitor.md](docs/ebpf-monitor.md) | [docs/ebpf-monitor_zh.md](docs/ebpf-monitor_zh.md) |
+| [docs/instruction-probes.md](docs/instruction-probes.md) | [docs/instruction-probes_zh.md](docs/instruction-probes_zh.md) |
 | [docs/java-calls.md](docs/java-calls.md) | [docs/java-calls_zh.md](docs/java-calls_zh.md) |
 | [docs/android17.md](docs/android17.md) | [docs/android17_zh.md](docs/android17_zh.md) |
 

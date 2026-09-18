@@ -162,6 +162,7 @@ enum Plan {
     Art(crate::art::Command),
     Java(crate::java::Command),
     Inline(crate::inline::Command),
+    Probe(crate::probe::Command),
     Lib(crate::loader::Command),
     Basic(String),
 }
@@ -169,7 +170,7 @@ fn plan(args: &[String]) -> Result<Plan, String> {
     let pos = positionals(args);
     let Some(action) = pos.first().map(|s| s.as_str()) else {
         return Err(
-            "missing action: ping | mods | read | write | call | java | dex | hook | inline | lib | overview | batch | shutdown"
+            "missing action: ping | mods | read | write | call | java | dex | hook | inline | probe | lib | overview | batch | shutdown"
                 .into(),
         );
     };
@@ -177,6 +178,7 @@ fn plan(args: &[String]) -> Result<Plan, String> {
         "dex" | "hook" => Plan::Art(crate::art::Command::parse(args)?),
         "java" => Plan::Java(crate::java::Command::parse(args)?),
         "inline" => Plan::Inline(crate::inline::Command::parse(args)?),
+        "probe" => Plan::Probe(crate::probe::Command::parse(args)?),
         "lib" => Plan::Lib(crate::loader::Command::parse(args)?),
         "ping" | "mods" | "read" | "write" | "call" | "shutdown" | "overview" | "batch" => {
             Plan::Basic(action.into())
@@ -190,6 +192,7 @@ fn execute(plan: Plan, args: &[String], ring: &mut Ring) -> Result<Outcome, Stri
         Plan::Art(c) => c.run(ring),
         Plan::Java(c) => c.run(ring),
         Plan::Inline(c) => c.run(ring),
+        Plan::Probe(c) => c.run(ring),
         Plan::Lib(c) => c.run(ring),
         Plan::Basic(action) => {
             let pos = positionals(args);
@@ -274,6 +277,9 @@ fn do_overview(ring: &mut Ring) -> Result<Outcome, String> {
     let inline = ring.rpc(|c| wr32(c, proto::C_TYPE, crate::inline::LIST))?;
     check_status(&inline)?;
     let inline_records = crate::inline::decode(&inline.data)?;
+    let probes = ring.rpc(|c| wr32(c, proto::C_TYPE, crate::probe::LIST))?;
+    check_status(&probes)?;
+    let probe_records = crate::probe::decode(&probes.data)?;
     let lib = crate::art::request(ring, crate::loader::LIST, 0, 0, &[])?;
     let lib_records = crate::loader::list_json(&lib.data)?;
     let dex = crate::art::request(ring, crate::art::DEX_LIST, 0, 0, &[])?;
@@ -304,6 +310,7 @@ fn do_overview(ring: &mut Ring) -> Result<Outcome, String> {
         ("proto".into(), Json::UInt(proto::PROTO_VER as u64)),
         ("payload".into(), pong.data),
         ("inline".into(), section(inline_records, false)),
+        ("probe".into(), section(probe_records, false)),
         ("lib".into(), section(lib_records, lib.flags & 1 != 0)),
         ("dex".into(), section(dex_records, dex.flags & 1 != 0)),
         (
@@ -326,7 +333,7 @@ fn do_overview(ring: &mut Ring) -> Result<Outcome, String> {
         _ => 0,
     };
     let human = format!(
-        "payload: {} (proto {})\ninline: {}  lib: {}  dex: {}  hook: {}\n",
+        "payload: {} (proto {})\ninline: {}  probe: {}  lib: {}  dex: {}  hook: {}\n",
         match &data {
             Json::Obj(f) => match f.iter().find(|(k, _)| k == "payload").map(|(_, v)| v) {
                 Some(Json::Obj(p)) => match p.iter().find(|(k, _)| k == "message").map(|(_, v)| v) {
@@ -339,6 +346,7 @@ fn do_overview(ring: &mut Ring) -> Result<Outcome, String> {
         },
         proto::PROTO_VER,
         counts("inline"),
+        counts("probe"),
         counts("lib"),
         counts("dex"),
         counts("hook"),
@@ -906,6 +914,10 @@ mod tests {
         assert!(matches!(
             p("ij2art ctl --pid 1 inline list").unwrap(),
             Plan::Inline(_)
+        ));
+        assert!(matches!(
+            p("ij2art ctl --pid 1 probe list").unwrap(),
+            Plan::Probe(_)
         ));
         assert!(matches!(
             p("ij2art ctl --pid 1 lib list").unwrap(),

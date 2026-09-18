@@ -83,13 +83,32 @@ native inline hook (ShadowHook; in-process native function replacement)
                                        backend_error}; del is a physical unhook and
                                        idempotent on success
 
+instruction observation points (arm64; registers BEFORE executing the instruction)
+  probe add --target ADDR/SYM [--in LIB] [--offset N]
+  probe add --in LIB --offset RVA
+             symbols require --in; an absolute 0x address must not use --in.
+             module RVA means ELF virtual address + load bias, not file offset.
+             --offset is added to a target when both are supplied; 4-byte aligned.
+             optional: --tid T (0=any), --when xN=VALUE (x0..x30),
+                       --max-hits N (0=unlimited; matching hits include dropped hits)
+  probe list / query ID / del ID
+             states ACTIVE / LIMITED / REMOVED / ERROR; LIMITED still has a patch.
+             del physically restores the instruction: quiesce target callers first.
+  probe read ID [--after SEQ] [--limit N]
+             non-destructive batches (default/max 48); start at 0, then use next_seq.
+             retains the latest 256 snapshots per probe, including after del.
+             events: seq, hit, ts_ns (monotonic), tid, pc, sp, nzcv, regs.x0..x30.
+             lost=overwritten since cursor; dropped=contended hits; more=next batch.
+             busy (-75) is retryable with the same cursor. Maximum 64 installations
+             per process lifetime; loaded ELFs only. Patches code using ShadowHook.
+
 native library upload (a source for inline replacements)
   lib load <file.so> [--name N] [--nonce N]
              chunked upload of a .so (arm64 ELF64, <=4MiB) via memfd + dlopen; the
              record's module field "/memfd:NAME (deleted)" is usable directly as
              --in/--replacement-in
-  lib list / commit ID / unload ID     unload is refused while an ACTIVE inline hook
-                                       references the library; nonce supports resuming
+  lib list / commit ID / unload ID     unload is refused while an inline hook or an
+                                       installed probe references the library; nonce supports resuming
                                        after a timeout (see the stderr hint)
 
 ART method hook (Java method replacement; the app must register runtime readiness first)
@@ -163,7 +182,7 @@ const AGENT: &str = r#"ij2art -- output contract for scripts / LLM agents
    dex upload / hook add commands to run on the device.
 
 3. Restore context with ctl overview: one connection returns the payload identity,
-   the protocol version, and every inline/lib/dex/hook record, with no per-table queries.
+   the protocol version, and every inline/probe/lib/dex/hook record, with no per-table queries.
 
 4. Waiting for a process: after launch <pkg> --wait 20, go straight to
    ctl --pkg <pkg> --wait 20.
@@ -172,9 +191,12 @@ const AGENT: &str = r#"ij2art -- output contract for scripts / LLM agents
    - dex upload / lib load use nonce as the idempotency key; after a timeout, rerun
      with the same nonce to resume (stderr prints the nonce), or query with
      dex query --nonce N / lib list and then commit.
-   - inline/lib/dex/hook list/query always return the final result of a timed-out
+   - inline/probe/lib/dex/hook list/query always return the final result of a timed-out
      operation; do not blindly retry install-type commands (adding a duplicate
-     inline target errors out -- a feature: it prevents stacked hooks).
+     inline/probe target errors out -- a feature: it prevents stacked hooks).
+   - probe read is non-destructive. Start with --after 0 and advance with next_seq;
+     check lost and probe.dropped for missing observations. Retry -75 with the same
+     cursor. LIMITED stops collection but requires probe del before shutdown/unload.
    - java call is an asynchronous submit; ok:true means only that the RPC succeeded,
      read data.state for the execution result. Poll query until SUCCEEDED/FAILED,
      then check results/error, and release the record slot with java del ID. A
@@ -187,6 +209,7 @@ const AGENT: &str = r#"ij2art -- output contract for scripts / LLM agents
               exception/unsupported/signature/busy)
      -40..-44 inline (argument/state/slot full/backend/not found)
      -50..-55 lib (argument/state/slot full/not found/dlopen failed/IO)
+     -70..-75 probe (argument/state/slot full/backend/not found/buffer busy)
    Common recovery: for -44/-53 confirm the id with list; for -41/-51 read the hint
    in the message; for -43 check backend_error.
 

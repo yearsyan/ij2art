@@ -513,6 +513,11 @@ impl MemElf {
         self.cache.is_some()
     }
 
+    /// Relocation bias, which need not equal the first mapping's start address.
+    pub fn load_bias(&self) -> u64 {
+        self.reader.bias
+    }
+
     /// The symbol's runtime absolute address
     pub fn sym_addr(&mut self, name: &str) -> Option<u64> {
         if !self.ensure() {

@@ -11,12 +11,12 @@ const QUERY: u32 = 44;
 const RECORD_SIZE: usize = 48;
 
 #[derive(Debug)]
-struct Address {
+pub(crate) struct Address {
     name: String,
     module: Option<String>,
 }
 impl Address {
-    fn new(name: &str, module: Option<&str>) -> Result<Self, String> {
+    pub(crate) fn new(name: &str, module: Option<&str>) -> Result<Self, String> {
         if name.starts_with("0x") || name.starts_with("0X") {
             address_number(name)?;
         } else if name.is_empty() || module.is_none() {
@@ -30,32 +30,43 @@ impl Address {
             module: module.map(str::to_owned),
         })
     }
-    fn resolve(&self, pid: i32) -> Result<u64, String> {
+    pub(crate) fn resolve(&self, pid: i32) -> Result<u64, String> {
         if self.name.starts_with("0x") || self.name.starts_with("0X") {
             return address_number(&self.name);
         }
         let module = self.module.as_deref().unwrap();
-        let maps = crate::procfs::maps(pid).map_err(|e| e.to_string())?;
-        let matches: Vec<_> = maps
-            .iter()
-            .filter(|m| m.off == 0 && m.path.ends_with(module))
-            .collect();
-        if matches.len() != 1 {
-            return Err(format!(
-                "module {module:?} matched {} mappings; use an unambiguous path or address",
-                matches.len()
-            ));
-        }
-        let mapping = matches[0];
+        let (mapping, mut elf) = module_elf(pid, module)?;
         let addr = crate::elf::sym_vaddr(std::path::Path::new(&mapping.path), &self.name)
-            .and_then(|off| mapping.start.checked_add(off))
-            .or_else(|| {
-                crate::elf::MemElf::load(pid, mapping.start)
-                    .and_then(|mut elf| elf.sym_addr(&self.name))
-            })
+            .and_then(|off| elf.load_bias().checked_add(off))
+            .or_else(|| elf.sym_addr(&self.name))
             .ok_or_else(|| format!("symbol {} not found in {}", self.name, mapping.path))?;
         Ok(addr)
     }
+}
+
+fn module_elf(pid: i32, module: &str) -> Result<(crate::procfs::MapEnt, crate::elf::MemElf), String> {
+    let maps = crate::procfs::maps(pid).map_err(|e| e.to_string())?;
+    let matches: Vec<_> = maps
+        .into_iter()
+        .filter(|m| m.off == 0 && m.path.ends_with(module))
+        .collect();
+    if matches.len() != 1 {
+        return Err(format!(
+            "module {module:?} matched {} mappings; use an unambiguous path or address",
+            matches.len()
+        ));
+    }
+    let mapping = matches.into_iter().next().unwrap();
+    let elf = crate::elf::MemElf::load(pid, mapping.start)
+        .ok_or_else(|| format!("cannot read ELF load bias for {}", mapping.path))?;
+    Ok((mapping, elf))
+}
+
+pub(crate) fn module_offset(pid: i32, module: &str, offset: u64) -> Result<u64, String> {
+    let (_, elf) = module_elf(pid, module)?;
+    elf.load_bias()
+        .checked_add(offset)
+        .ok_or_else(|| "module offset overflows address".into())
 }
 fn address_number(s: &str) -> Result<u64, String> {
     let hex = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X"));

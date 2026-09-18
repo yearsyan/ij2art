@@ -16,6 +16,7 @@ mod json;
 mod loader;
 mod monitor;
 mod procfs;
+mod probe;
 mod proto;
 mod remote;
 mod resources;

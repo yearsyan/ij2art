@@ -189,7 +189,7 @@ static bool handle_cmd(const struct ij2art_cmd* c, struct ij2art_rsp* r) {
         flags_or(IJ2ART_RMF_SHUTDOWN);  // set the flag before replying; the CLI sees it too
         return true;
     default:
-        if (!ij2art_inline_command(*c, *r) && !ij2art_art_command(*c, *r) &&
+        if (!ij2art_inline_command(*c, *r) && !ij2art_probe_command(*c, *r) && !ij2art_art_command(*c, *r) &&
             !ij2art_loader_command(*c, *r))
             r->status = IJ2ART_E_BADCMD;
     }

@@ -230,7 +230,7 @@ void unload(Slot& s, ij2art_rsp& r) {
     // references and are unaffected by this check.
     if (ij2art_inline_module_in_use(reinterpret_cast<void*>(s.info.base)))
         return message(r, IJ2ART_E_LIB_STATE,
-                       "an active inline hook references this library; remove it first");
+                       "an active inline hook or instruction probe references this library; remove it first");
     // The caller must quiesce this library's code before unloading (same rule as
     // inline del): dlclose unmaps a never-pinned module immediately.
     if (dlclose(s.handle) != 0) {

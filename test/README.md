@@ -47,6 +47,7 @@ take `--mode jit|no-jit|debuggable|aot` (four ART runtime shapes per feature).
 | `run-aot-demo.py` | real-APK hooks on OAT quick code | `build-art-api.sh` + `build-apk.sh --aot`, then sign `out/aot-apktest-aligned.apk` as `out/aot-apktest-aligned-signed.apk` |
 | `run-java-calls.py` | JSON Java method calls (`--apk`, `--no-main` variants) | `./build.sh`, `build-art-api.sh`, `build-java-calls.sh` |
 | `run-inline.py` | inline-hook engine (`--mode art` runs it under ART) | `./build.sh`, `build-inline.sh` |
+| `run-probe.py` | instruction snapshots, filters, bounded concurrent capture, physical restore and module lifetime | `build-probe.sh` (also runs the host buffer regression) |
 | `run-static-jni.py` | one-shot JNI ABI / logical-disable fixtures (`--original` needs a specific libart build) | `build-jni-abi.sh` / `build-logical-disable.sh` / `build-static-original.sh` |
 | `run-monitor.py` | eBPF monitor check + 50k-event wrap | `build-monitor.sh` |
 | `run-injection.py` | production zygote carrier path, two APK cold launches, targets/clear, fd loading and ART replacement; requires an uninjected zygote | `build-art-api.sh`, `build-inline.sh`, `build-apk.sh --aot`, then sign the APK as for `run-aot-demo.py` |

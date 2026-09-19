@@ -355,6 +355,12 @@ fn seed_policy(fd: i32, sys_all: bool) -> Result<usize, String> {
         (221, POL_DECODE, 0, DEC_PATH, 0),
         (281, POL_DECODE, 1, DEC_PATH, 0),
         (78, POL_DECODE, 1, DEC_PATH, 0),
+        // Hardened libraries that call svc directly (e.g. libmtguard) favour the
+        // stat/access family over openat; decode their path arguments too.
+        (79, POL_DECODE, 1, DEC_PATH, 0),   // newfstatat
+        (291, POL_DECODE, 1, DEC_PATH, 0),  // statx
+        (48, POL_DECODE, 1, DEC_PATH, 0),   // faccessat
+        (439, POL_DECODE, 1, DEC_PATH, 0),  // faccessat2
         (40, POL_HEAD, 0, DEC_NONE, 0),
         (203, POL_DECODE, 1, DEC_SOCKADDR, 1),
         (206, POL_DECODE, 4, DEC_SOCKADDR, 0),

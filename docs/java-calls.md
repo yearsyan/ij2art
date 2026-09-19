@@ -97,8 +97,10 @@ An exception stops the sequence; `error` gives the zero-based call `index` and t
 already happened. Scalar return values provide `type`/`value`, `long` is returned as a decimal
 string, and non-finite floating-point values are returned as strings. Objects and arrays only
 provide `class`/`opaque` — their `toString()` is not called and their fields are not read
-automatically. Returned strings are at most 512 UTF-16 units, and result truncation is
-flagged with `truncated`, `omitted`, and `results_truncated`. `dex_id` is an unsigned decimal
+automatically. Returned strings are at most 512 UTF-16 units and the total result payload is
+capped at 8192 bytes by default; a request may raise both per job with top-level `maxString`
+(64..15872) and `maxBytes` (512..15872), e.g. `{"calls":[...],"maxString":4096}`. Result
+truncation is flagged with `truncated`, `omitted`, and `results_truncated`. `dex_id` is an unsigned decimal
 string, or `null` for the default loader.
 
 At most 16 tasks are retained per process; `java del ID` releases a completed record and does

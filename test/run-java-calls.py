@@ -70,8 +70,11 @@ def main():
                 assert contains in result.stdout, result.stdout
             return value['data'] if ok else value['error']
 
-        def submit(calls, thread='new', dex=None, ok=True, contains=None):
-            words = ['java', 'call', '--thread', thread, '--request', json.dumps({'calls': calls}, ensure_ascii=False)]
+        def submit(calls, thread='new', dex=None, ok=True, contains=None, request=None):
+            root = {'calls': calls}
+            if request:
+                root.update(request)
+            words = ['java', 'call', '--thread', thread, '--request', json.dumps(root, ensure_ascii=False)]
             if dex is not None:
                 words += ['--dex-id', str(dex)]
             return ctl(*words, ok=ok, contains=contains)
@@ -164,6 +167,17 @@ def main():
         huge = run([call('huge') for _ in range(32)])
         assert huge['results_truncated'] and any(r.get('omitted') for r in huge['results']), huge
         assert huge['results'][0]['truncated'], huge
+
+        # Per-request transfer limits: maxString raises the string clip, maxBytes the total budget.
+        raised = run([call('huge')], request={'maxString': 4096, 'maxBytes': 15872})
+        assert 4095 <= len(raised['results'][0]['value']) <= 4096, raised  # clip never splits a surrogate pair
+        assert raised['results'][0]['truncated'], raised
+        wide = run([call('huge') for _ in range(32)], request={'maxBytes': 15872})
+        assert wide['results_truncated'] and any(r.get('omitted') for r in wide['results']), wide
+        kept = sum(1 for r in wide['results'] if not r.get('omitted'))
+        assert kept > 12, wide  # the default 8192-byte budget keeps only about 9
+        submit([call('count')], request={'maxString': 8}, ok=False, contains='maxString')
+        submit([call('count')], request={'maxBytes': 99999}, ok=False, contains='maxBytes')
 
         # Full registry retains finished snapshots, never silently replays/evicts them.
         kept = [wait(submit([call('count')]), delete=False)['id'] for _ in range(16)]

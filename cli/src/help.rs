@@ -280,8 +280,10 @@ Asynchronous results and limits
   Scalar results carry type/value; long is returned as a decimal string and non-finite
   floats as strings; objects/arrays return only class/opaque, with no implicit
   toString call and no field traversal.
-  Strings return at most 512 UTF-16 units; the total result size is limited, and
-  truncation is flagged with truncated/omitted.
+  Strings return at most 512 UTF-16 units and the total result payload is capped at
+  8192 bytes by default; a request may raise both per-job with "maxString" (64..15872)
+  and "maxBytes" (512..15872) at the top level, e.g. {"calls":[...],"maxString":4096}.
+  Truncation is flagged with truncated/omitted.
   Input is <=3992 UTF-8 bytes, 1..32 calls, JSON nesting <=16 levels, array types
   <=8 dimensions.
   At most 16 tasks are kept per process; release the record slot with java del ID

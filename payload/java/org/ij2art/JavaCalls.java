@@ -26,6 +26,10 @@ import org.json.JSONObject;
 public final class JavaCalls {
     private JavaCalls() {}
     private static final int SLOTS = 16;
+    private static final int DEFAULT_MAX_STRING = 512;
+    private static final int DEFAULT_MAX_BYTES = 8192;
+    // One response frame is IJ2ART_RSP_DATA_MAX=16344 bytes; leave margin for the JSON envelope.
+    private static final int HARD_MAX = 15872;
     private static final Map<Long, Job> JOBS = new LinkedHashMap<>();
     private static long nextId = 1;
     private static boolean closing;
@@ -39,10 +43,10 @@ public final class JavaCalls {
         String text = StandardCharsets.UTF_8.newDecoder()
             .onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
             .decode(ByteBuffer.wrap(input)).toString();
-        Call[] calls = parse(text);
+        Request request = parse(text);
         Looper looper = main ? Looper.getMainLooper() : null;
         if (main && looper == null) throw new IllegalStateException("App main Looper is not ready");
-        Job job = new Job(nextId++, dexId, loader, calls, main);
+        Job job = new Job(nextId++, dexId, loader, request, main);
         JOBS.put(job.id, job);
         try {
             if (main) {
@@ -100,14 +104,14 @@ public final class JavaCalls {
         final long id, dexId;
         final boolean main;
         ClassLoader loader;
-        Call[] calls;
+        Request request;
         volatile int state; // QUEUED=0, RUNNING=1, SUCCEEDED=2, FAILED=3 (release publishes results)
         JSONArray results;
         JSONObject failure;
         boolean truncated;
 
-        Job(long id, long dexId, ClassLoader loader, Call[] calls, boolean main) {
-            this.id = id; this.dexId = dexId; this.loader = loader; this.calls = calls; this.main = main;
+        Job(long id, long dexId, ClassLoader loader, Request request, boolean main) {
+            this.id = id; this.dexId = dexId; this.loader = loader; this.request = request; this.main = main;
         }
         boolean finished() { return state >= 2; }
         JSONObject snapshot(boolean details) throws Exception {
@@ -135,8 +139,8 @@ public final class JavaCalls {
                 previous = thread.getContextClassLoader();
                 havePrevious = true;
                 thread.setContextClassLoader(loader);
-                for (; index < calls.length; ++index) {
-                    Call call = calls[index];
+                for (; index < request.calls.length; ++index) {
+                    Call call = request.calls[index];
                     Class<?> owner = type(call.owner, loader);
                     Class<?>[] types = new Class<?>[call.args.length];
                     Object[] values = new Object[types.length];
@@ -154,9 +158,9 @@ public final class JavaCalls {
                     method.setAccessible(true); // Android hidden-API/access restrictions still apply.
                     Object value = method.invoke(receiver, values);
                     if (call.save != null) refs.put(call.save, value);
-                    JSONObject result = result(index, method.getReturnType(), value);
+                    JSONObject result = result(index, method.getReturnType(), value, request.maxString);
                     int size = wire(result).length;
-                    if (outputBytes + size <= 8192) { results.put(result); outputBytes += size; }
+                    if (outputBytes + size <= request.maxBytes) { results.put(result); outputBytes += size; }
                     else { truncated = true; results.put(new JSONObject().put("index", index).put("omitted", true)); }
                 }
             } catch (Throwable error) {
@@ -165,19 +169,19 @@ public final class JavaCalls {
                 try { if (havePrevious) thread.setContextClassLoader(previous); }
                 catch (Throwable error) { if (failure == null) failure = error(index, error); }
                 // Do not keep app objects, their loaders, or large arguments in completed job records.
-                refs.clear(); calls = null; loader = null;
+                refs.clear(); request.calls = null; loader = null;
                 state = failure == null ? 2 : 3;
             }
         }
     }
 
-    private static JSONObject result(int index, Class<?> declared, Object value) throws Exception {
+    private static JSONObject result(int index, Class<?> declared, Object value, int maxString) throws Exception {
         JSONObject out = new JSONObject().put("index", index).put("type", clip(declared.getTypeName(), 256));
         if (value == null) return out.put("value", JSONObject.NULL);
         if (value instanceof String) {
             String text = (String)value;
-            out.put("value", clip(text, 512));
-            if (text.length() > 512) out.put("truncated", true);
+            out.put("value", clip(text, maxString));
+            if (text.length() > maxString) out.put("truncated", true);
         } else if (value instanceof Long) {
             out.put("value", value.toString()); // Preserve all 64 bits for JSON clients.
         } else if (value instanceof Boolean || value instanceof Byte || value instanceof Short || value instanceof Integer) {
@@ -225,6 +229,13 @@ public final class JavaCalls {
             this.owner = owner; this.method = method; this.receiver = receiver; this.save = save; this.args = args;
         }
     }
+    private static final class Request {
+        Call[] calls;
+        final int maxString, maxBytes;
+        Request(Call[] calls, int maxString, int maxBytes) {
+            this.calls = calls; this.maxString = maxString; this.maxBytes = maxBytes;
+        }
+    }
     private static final class NumberToken {
         final String text;
         NumberToken(String text) { this.text = text; }
@@ -260,7 +271,7 @@ public final class JavaCalls {
         }
     }
 
-    private static Call[] parse(String text) throws Exception {
+    private static Request parse(String text) throws Exception {
         checkCharacters(text);
         Object root;
         try (JsonReader reader = new JsonReader(new StringReader(text))) {
@@ -269,7 +280,9 @@ public final class JavaCalls {
             if (reader.peek() != JsonToken.END_DOCUMENT) throw invalid("trailing JSON content");
         }
         JSONObject object = object(root, "request");
-        fields(object, "calls");
+        fields(object, "calls", "maxString", "maxBytes");
+        int maxString = limit(object, "maxString", DEFAULT_MAX_STRING, 64, HARD_MAX);
+        int maxBytes = limit(object, "maxBytes", DEFAULT_MAX_BYTES, 512, HARD_MAX);
         JSONArray calls = object.getJSONArray("calls");
         if (calls.length() == 0 || calls.length() > 32) throw invalid("calls must contain 1..32 method calls");
         Call[] out = new Call[calls.length()];
@@ -294,7 +307,16 @@ public final class JavaCalls {
             if (save != null && !saved.add(save)) throw invalid("duplicate save name: " + save);
             out[i] = new Call(owner, method, receiver, save, parameters);
         }
-        return out;
+        return new Request(out, maxString, maxBytes);
+    }
+
+    private static int limit(JSONObject object, String name, int fallback, int min, int max) throws Exception {
+        if (!object.has(name)) return fallback;
+        Object value = object.get(name);
+        if (!(value instanceof Integer)) throw invalid(name + " must be an integer in " + min + ".." + max);
+        int n = (Integer)value;
+        if (n < min || n > max) throw invalid(name + " must be an integer in " + min + ".." + max);
+        return n;
     }
 
     // AOSP JsonReader still accepts unknown escapes, raw controls and mixed-case

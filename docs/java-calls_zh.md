@@ -76,8 +76,9 @@ Java/JSON 结构解析器；另做字符检查，拒绝 [AOSP JsonReader](https:
 异常使序列停止，`error` 给出从 0 开始的调用 `index`、异常 `type/message`，保留此前的
 `results`，不回滚已发生的副作用。返回值为标量时提供 `type/value`，`long` 返回十进制字符串，
 非有限浮点返回字符串。对象和数组只提供 `class/opaque`，不自动调用它们的 `toString()` 或读取字段。
-返回的字符串最多 512 个 UTF-16 单元，结果截断会标记 `truncated`、`omitted` 和
-`results_truncated`。`dex_id` 是无符号十进制字符串，默认加载器则为 `null`。
+返回的字符串默认最多 512 个 UTF-16 单元、结果总负载上限 8192 字节；请求可在顶层用
+`maxString`（64..15872）和 `maxBytes`（512..15872）按任务上调，例如
+`{"calls":[...],"maxString":4096}`。结果截断会标记 `truncated`、`omitted` 和 `results_truncated`。`dex_id` 是无符号十进制字符串，默认加载器则为 `null`。
 
 每进程最多保留 16 个任务；`java del ID` 释放已完成记录，不会取消或中断排队/执行中的方法。
 请求最多 3992 个 UTF-8 字节、32 次调用、16 层 JSON 嵌套、8 维数组类型。
